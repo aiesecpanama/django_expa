@@ -1,0 +1,21 @@
+<html>
+    <head>
+        
+    </head>
+    <body>
+        {% for manager in managers %}
+        <table>
+            <tr>
+                <td>Nombre</td>
+                <td>{{ manager.name }}</td>
+            </tr> 
+            {% for key, value in manager.contactData.items %}
+            <tr>
+                <td>{{key}}</td> 
+                <td>{{value}}</td>
+            </tr>
+            {% endfor %}
+        </table>
+        {% endfor %}
+    </body>
+</html>
