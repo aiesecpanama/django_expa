@@ -1,0 +1,33 @@
+<html>
+    <head>
+    </head>
+    <body>
+    {% for lc in lcs %}
+        <h1>{{lc.nombre}}</h1>
+        <table>
+            <thead>
+                <tr>
+                    <th>Nombre</th>
+                    <th>Cargo</th>
+                    <th>Teléfono</th>
+                    <th>Facebook</th>
+                    <th>Correo 1</th>
+                    <th>Correo 2</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for cargo in lc.cargos %}
+                <tr>
+                    <td>{{cargo.name}}</td>
+                    <td>{{cargo.cargo}}</td>
+                    <td>{{cargo.contactData.phone}}</td>
+                    <td>{{cargo.contactData.facebook}}</td>
+                    <td>{{cargo.contactData.email}}</td>
+                    <td>{{cargo.contactData.altMail}}</td>
+                </tr>
+            {% endfor %}                
+            </tbody>
+        </table>
+    {% endfor %}
+    </body>
+</html>

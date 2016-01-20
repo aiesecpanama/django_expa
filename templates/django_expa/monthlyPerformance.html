@@ -1,0 +1,38 @@
+<html>
+    <head>
+    </head>
+    <body>
+    {% for program, performance in programs.items %}
+        <h1>{{program}}</h1>
+        <table>
+            <thead>
+                <tr>
+                    <th>Programa</th>
+                    <th>Enero</th>
+                    <th>Febrero</th>
+                    <th>Marzo</th>
+                    <th>Abril</th>
+                    <th>Mayo</th>
+                    <th>Junio</th>
+                    <th>Julio</th>
+                    <th>Agosto</th>
+                    <th>Septiembre</th>
+                    <th>Octubre</th>
+                    <th>Noviembre</th>
+                    <th>Diciembre</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for program, months in performance.items %}
+            <tr>
+                <td>{{program}}</td>
+                {% for month in months %}
+                <td>{{month}}</td>
+                {% endfor %}                
+            </tr>
+            {% endfor %}                
+            </tbody>
+        </table>
+    {% endfor %}
+    </body>
+</html>
