@@ -1,14 +1,22 @@
 # coding=utf-8
+"""
+Module containing the ExpaApi class
+"""
 import json
 import requests
 import urllib
 
 import calendar
 from datetime import datetime
+from . import tools
 
 #from django_podio.api import PodioApi
 
-class ExpaApi:
+class ExpaApi(object):
+    """
+    This class is meant to encapsulate and facilitate the development of methods that extract information from the GIS API. Whenever a new object of this class is created, it generates a new access token which will be used for all method calls.
+    As such tokens expire two hours after being obtained, it is recommended to genetare a new ExpaApi object if your scripts take too long to complete.
+    """
 
     _apiUrl = "https://gis-api.aiesec.org/v1/{palabra1}/{palabra2}?access_token={token}"
 
@@ -16,77 +24,73 @@ class ExpaApi:
     programDict = {'gcdp': 1, 'gip': '2'}
 
     def __init__(self):
-        self._login()
-    
-
-    def _login(self):
         self.token = requests.post("http://apps.aiesecandes.org/api/token").text
-        return self.token
 
-    def _buildQuery(self, routes, queryParams={}, version='v2'):
+    def _buildQuery(self, routes, queryParams=None, version='v2'):
         """
-            Builds a well-formed GIS API query
-            
-            version: The version of the API being used. Can be v1 or v2.
-            routes: A list of the uri arguments (name better).
-            queryParams: A dictionary of query parameters
+        Builds a well-formed GIS API query
+
+        version: The version of the API being used. Can be v1 or v2.
+        routes: A list of the URI path to the required API REST resource.
+        queryParams: A dictionary of query parameters, for GET requests
         """
+        if queryParams is None:
+            queryParams = {}
         baseUrl = "https://gis-api.aiesec.org/{version}/{routes}?{params}"
         queryParams['access_token'] = self.token
-        return baseUrl.format(version=version, routes = "/".join(routes), params=urllib.urlencode(queryParams, True)) 
-
-    def getToken(self):
-        return self.token
+        return baseUrl.format(version=version, routes="/".join(routes), params=urllib.urlencode(queryParams, True))
 
     def getOpportunity(self, opID):
+        """
+        Returns the bare JSON data of an opportunity, as obtained from the GIS API.
+        """
         response = requests.get(self._buildQuery(['opportunities', opID]))
-        return response # + " " + self._apiUrl.format(palabra1="opportunities", palabra2=opId, token=self.token) + " " + self.token
+        return response
 
     def test(self, **kwargs):
-        return self.getColombiaContactList()
+        """
+        Test method. Has one kayword argument, 'testArg', to be used when necessary
+        """
+        print self
+        return kwargs['testArg']
 
     def getManagedEPs(self, expaID):
         """
-            Devuelve a todos los EPs que son administrados por el EP manager cuya EXPA ID entra como parámetro
+        Devuelve a todos los EPs que son administrados por el EP manager cuya EXPA ID entra como parámetro
        """
         response = requests.get(self._buildQuery(['people.json'], {'filters[managers][]':[expaID]})).text
         return response
 
-    def getColombiaContactList(self):
+    def getCountryEBs(self, mcID):
         """
-            Este método busca dentro de todas las oficinas locales del MC Colombia a los VPs de cada una de ellas para el término 2016
+        Este método busca dentro de todas las oficinas locales del MC Colombia a los VPs de cada una de ellas para el término 2016
         """
-        response = requests.get(self._buildQuery(['committees', '1551.json'])).text
+        response = requests.get(self._buildQuery(['committees', '%s.json' % mcID])).text
         lcs = json.loads(response)['suboffices']
-        ans = [] 
-        counter = 0
+        ans = []
         for lc in lcs:
             newLC = {'nombre':lc['full_name']}
             data = self.getLCEBContactList(str(lc['id']))
             newLC['cargos'] = data
             ans.append(newLC)
-            counter += 1
-            if counter==5:
-                pass
-                #break
-        return ans 
+        return ans
 
     def getLCEBContactList(self, lcID):
         """
-            Este método retorna un diccionario con las personas que conforman la junta ejecutiva del LC cuya ID entra como parámetro, para el periodo 2016
+        Este método retorna un diccionario con las personas que conforman la junta ejecutiva del LC cuya ID entra como parámetro, para el periodo 2016
         """
-        ans = [] 
+        ans = []
         data = json.loads(requests.get(self._buildQuery(['committees', str(lcID), 'terms.json'])).text)
         for term in data['data']:
             if term['short_name'] == '2016':
-                info = requests.get(self._buildQuery(['committees', str(lcID), 'terms', str(term['id']) + '.json']) ).text
+                info = requests.get(self._buildQuery(['committees', str(lcID), 'terms', str(term['id']) + '.json'])).text
                 info = json.loads(info)
                 for team in info['teams']:
-                    if team["team_type"] == "eb": 
+                    if team["team_type"] == "eb":
                         for position in team['positions']:
                             person = {}
                             if position['person_id'] is not None:
-                                person = self.getContactData(json.loads(requests.get(self._buildQuery(['people', str(position['person_id']) + '.json'])).text))
+                                person = tools.getContactData(json.loads(requests.get(self._buildQuery(['people', str(position['person_id']) + '.json'])).text))
                             person['cargo'] = position['position_name']
                             ans.append(person)
                         break
@@ -95,56 +99,40 @@ class ExpaApi:
         return ans
 
     def getOPManagersData(self, opID):
-        """Éste método devuelve un diccionario con todos los EP Managers y sus datos de contacto de la oportunidad cuya ID entra como parámetro"""
-        opportunity =  json.loads(requests.get(self._buildQuery(['opportunities', opID])).text) #hace un request GET sobre la oportunidad con la ID dada, obtiene el texto, o lo transforma de json a un objeto de python
+        """
+        Éste método devuelve un diccionario con todos los EP Managers y sus datos de contacto de la oportunidad cuya ID entra como parámetro
+        """
+        #hace un request GET sobre la oportunidad con la ID dada, obtiene el texto, o lo transforma de json a un objeto de python
+        opportunity = json.loads(requests.get(self._buildQuery(['opportunities', opID])).text)
         managerData = opportunity["managers"]
-        managers = [] 
+        managers = []
         for manager in managerData:
-            managerDict = {"name": manager["full_name"]}  
-            contactData = {}
-            if manager["contact_info"] is not None:#contact_info
-                for key, value in manager["contact_info"].iteritems():
-                    if value is not None:
-                        contactData[key] = value
-            contactData[u"altMail"] = manager["email"]
-            managerDict["contactData"] = contactData
-            managers.append(managerDict)
-            
+            managers.append(tools.getContactData(manager))
         return managers
 
-    def getContactData(self, person):
+    def getMonthStats(self, month, year, program, lc=1395):
         """
-            Extrae los datos de contacto de una persona, a partir del objeto arrojado por la API de EXPA
-        """
-        personDict = {"name": person["full_name"]}  
-        contactData = {}
-        if person["contact_info"] is not None:#contact_info
-            contactData = person['contact_info']
-        contactData[u"altMail"] = person["email"]
-        personDict["contactData"] = contactData
-        return personDict
-
-    def getMonthStats(self, month, year, program, lc = 1395):
-        """
-            Extrae el ip/ma/re de un mes específico, en un año específico, para un comité y uno de los 4 programas
+        Extrae el ip/ma/re de un mes específico, en un año específico, para un comité y uno de los 4 programas
         """
         queryArgs = {
-            'basic[home_office_id]':lc, 
-            'basic[type]':self.ioDict[program[0]], 
-            'end_date':'%d-%02d-%02d' % (year, month, calendar.monthrange(year, month)[1]), 
-            'programmes[]':self.programDict[program[1:]], 
+            'basic[home_office_id]':lc,
+            'basic[type]':self.ioDict[program[0]],
+            'end_date':'%d-%02d-%02d' % (year, month, calendar.monthrange(year, month)[1]),
+            'programmes[]':self.programDict[program[1:]],
             'start_date':'%d-%02d-01' % (year, month)
         }
         query = self._buildQuery(['applications', 'analyze.json'], queryArgs)
-        try:
-            response = json.loads(requests.get(query).text)['analytics']
-        except:
-            print json.loads(requests.get(query).text)
+        response = json.loads(requests.get(query).text)['analytics']
         return {'MA': response['total_approvals']['doc_count'], 'RE': response['total_realized']['doc_count']}
 
-    def getWeekStats(self, week, year, program, lc = 1395):
+    def getWeekStats(self, week, year, program, lc=1395):
         """
             Extrae el ip/ma/re de un mes específico, en un año específico, para un comité y uno de los 4 programas
+
+
+            returns: A dictionary with the following structure:
+                {'MA': *number of matches in the given week*,
+                 'RE': *# of realizations in the given week*}
         """
         if week == 0:
             weekStart = "%d-01-01" % year
@@ -154,100 +142,124 @@ class ExpaApi:
         weekEnd = datetime.strptime('%d %d 0' % (year, week), '%Y %W %w').strftime('%Y-%m-%d')
 
         queryArgs = {
-            'basic[home_office_id]':lc, 
-            'basic[type]':self.ioDict[program[0]], 
-            'end_date':weekEnd, 
-            'programmes[]':self.programDict[program[1:]], 
+            'basic[home_office_id]':lc,
+            'basic[type]':self.ioDict[program[0]],
+            'end_date':weekEnd,
+            'programmes[]':self.programDict[program[1:]],
             'start_date':weekStart
         }
         query = self._buildQuery(['applications', 'analyze.json'], queryArgs)
-        try:
-            response = json.loads(requests.get(query).text)['analytics']
-        except:
-            print json.loads(requests.get(query).text)
-        return {'MA': response['total_approvals']['doc_count'], 'RE': response['total_realized']['doc_count']}
+        response = json.loads(requests.get(query).text)['analytics']
+        return {
+            'MA': response['total_approvals']['doc_count'],
+            'RE': response['total_realized']['doc_count']
+            }
 
     def getLCWeeklyPerformance(self, lc=1395):
+        """
+        Returns the weekly performance of an LC for a given year, and all four programs
+
+        returns: A dictionary with the following structure:
+        {
+            'igcdp': *weeklyPerformance for igcdp*,
+            ... and so on for all four programs
+        }
+        """
+        answer = {}
+        for io in ['i', 'o']:
+            for program in ['gcdp', 'gip']:
+                answer[io+program] = self.getProgramWeeklyPerformance(io+program, lc)
+        return answer
+
+    def getProgramWeeklyPerformance(self, program, office=1395):
+        """
+        For a given AIESEC office and program, returns its weekly performance, plus its total one during the year. Week 1 starts the first monday of a month.
+
+        Returns: The following dictionary structure:
+        {'totals': {
+            'MATOTAL': *Total matches in the year*,
+            'RETOTAL': *Total realizations in the year*
+            },
+        'weekly': {
+            'MA':[*matches week 0*, *matches week 1*, ...],
+            'RE':[*realizations week 0*, *realizations week 1*, ...],
+        }
+        """
         now = datetime.now()
         currentWeek = int(now.strftime('%W'))
         currentYear = int(now.strftime('%Y'))
-        answer = {}
-        for io in ['i', 'o']:
-            for program in ['gcdp', 'gip']:
-                ma = []
-                re = []
-                maTotal = 0
-                reTotal = 0
-                for i in range (currentWeek+1):
-                    weekData = self.getWeekStats(i, currentYear, io+program, lc)
-                    ma.append(weekData['MA'])
-                    maTotal += weekData['MA']
-                    re.append(weekData['RE'])
-                    reTotal += weekData['RE']
-                totals = {'MATOTAL':maTotal, 'RETOTAL':reTotal}
-                weekly = {'MA': ma, 'RE': re}
-                answer[io+program] = {'totals': totals, 'weekly': weekly}
-        return answer
+        ma = []
+        re = []
+        maTotal = 0
+        reTotal = 0
+        for i in range(currentWeek+1):
+            weekData = self.getWeekStats(i, currentYear, program, office)
+            ma.append(weekData['MA'])
+            maTotal += weekData['MA']
+            re.append(weekData['RE'])
+            reTotal += weekData['RE']
+        totals = {'MATOTAL':maTotal, 'RETOTAL':reTotal}
+        weekly = {'MA': ma, 'RE': re}
+        return {'totals': totals, 'weekly': weekly}
 
     def getLCYearlyPerformance(self, year, lc=1395):
         """
-            Returna el desempeño en matches y realizaciones de un LC en un año dado, separado por mes, para los cuatro programas
+        Returna el desempeño en matches y realizaciones de un LC en un año dado, separado por mes, para los cuatro programas
         """
         answer = {}
         for io in ['i', 'o']:
             for program in ['gcdp', 'gip']:
                 ma = []
                 re = []
-                for i in range (1, 13):
-                    monthData = self.getMonthStats(i, year, io+program)
+                for i in range(1, 13):
+                    monthData = self.getMonthStats(i, year, io+program, lc)
                     print io + program + ', mes ' + str(i)
                     print monthData
                     ma.append(monthData['MA'])
                     re.append(monthData['RE'])
                 answer[io+program] = {'MA': ma, 'RE': re}
         return answer
-        
-#Métodos relacionados con el año actual
 
-    def getCurrentYearStats(self, program, lc = 1395):
+#Métodos relacionados con el año actual
+    def getCurrentYearStats(self, program, lc=1395):
         """
-            Extrae el ma/re de el año actual, para un comité y uno de los 4 programas
+        Extrae el ma/re de el año actual, para un comité y uno de los 4 programas
         """
         now = datetime.now()
         currentYear = int(now.strftime('%Y'))
-        startDate = "%d-01-01" % currentYear 
+        startDate = "%d-01-01" % currentYear
 
         endDate = now.strftime('%Y-%m-%d')
 
         queryArgs = {
-            'basic[home_office_id]':lc, 
-            'basic[type]':self.ioDict[program[0]], 
-            'end_date':endDate, 
-            'programmes[]':self.programDict[program[1:]], 
+            'basic[home_office_id]':lc,
+            'basic[type]':self.ioDict[program[0]],
+            'end_date':endDate,
+            'programmes[]':self.programDict[program[1:]],
             'start_date':startDate
         }
         query = self._buildQuery(['applications', 'analyze.json'], queryArgs)
-        try:
-            response = json.loads(requests.get(query).text)['analytics']
-        except:
-            print json.loads(requests.get(query).text)
-        return {'MA': response['total_approvals']['doc_count'], 'RE': response['total_realized']['doc_count']}
+        response = json.loads(requests.get(query).text)['analytics']
+        return {
+            'MA': response['total_approvals']['doc_count'],
+            'RE': response['total_realized']['doc_count']
+            }
 
-    def getCountryCurrentYearStats(self, program, lc = 1551):
+    def getCountryCurrentYearStats(self, program, lc=1551):
         """
-            Extrae el ma/re de el año actual, para un comité y uno de los 4 programas
+        Extrae el ma/re de el año actual, para un comité y uno de los 4 programas
         """
         now = datetime.now()
         currentYear = int(now.strftime('%Y'))
-        startDate = "%d-01-01" % currentYear 
+        startDate = "%d-01-01" % currentYear
 
         endDate = now.strftime('%Y-%m-%d')
 
         queryArgs = {
-            'basic[home_office_id]':lc, 
-            'basic[type]':self.ioDict[program[0]], 
-            'end_date':endDate, 
-            'programmes[]':self.programDict[program[1:]], 
+            'basic[home_office_id]':lc,
+            'basic[type]':self.ioDict[program[0]],
+            'end_date':endDate,
+            'programmes[]':self.programDict[program[1:]],
             'start_date':startDate
         }
         query = self._buildQuery(['applications', 'analyze.json'], queryArgs)
@@ -257,9 +269,10 @@ class ExpaApi:
             for lc in lcData:
                 response[lc['key']] = {'MA': lc['total_approvals']['doc_count'], 'RE': lc['total_realized']['doc_count']}
 
-        except Exception as e:
+        except KeyError as e:
             print e
             print json.loads(requests.get(query).text)
+            raise e
         return response
 
 #Listas de MCs, LCs, regiones y similares
@@ -284,4 +297,88 @@ class ExpaApi:
         """
         query = self._buildQuery(['committees', '%d.json' % subofficeID])
         return json.loads(requests.get(query).text)['suboffices']
+
+####################
+############ Analytics sobre people, que permitan obtener personas que cumplen o no cumplen ciertos criterios
+####################
+
+    def getUncontactedEPs(self):
+        """
+        Returns all EPs belonging to the token owner's LC who have not been contacted yet, up to 100. It also returns the total number.
+        """
+        query = self._buildQuery(['people.json',], {
+            'filters[contacted]': 'false',
+            'filters[registered[from]]':'2016-01-01',
+            'page':1,
+            'per_page':100
+        })
+        data = json.loads(requests.get(query).text)
+        totals = {}
+        totals['total'] = data['paging']['total_items']
+        totals['eps'] = data['data']
+        return totals
+
+    def getWeekRegistered(self, week=None, year=None):
+        """
+        Extrae a las personas, y el número de personas, que se registraron en EXPA desde el lunes anterior. If no week or year arguments are given, uses the current week
+
+        returns: A dictionary with the following structure:
+            {'total': *number of people who registered that week*,
+             'eps': *the eps who registered*}
+        """
+        if week == None or year == None:
+            now = datetime.now()
+            week = int(now.strftime('%W'))
+            year = int(now.strftime('%Y'))
+
+        if week == 0:
+            weekStart = "%d-01-01" % year
+        else:
+            weekStart = datetime.strptime('%d %d 1' % (year, week), '%Y %W %w').strftime('%Y-%m-%d')
+
+        weekEnd = datetime.strptime('%d %d 0' % (year, week), '%Y %W %w').strftime('%Y-%m-%d')
+
+        query = self._buildQuery(['people.json',], {
+            'filters[registered[from]]':weekStart,
+            'filters[registered[to]]':weekEnd,
+            'page':1,
+            'per_page':100
+        })
+        data = json.loads(requests.get(query).text)
+        totals = {}
+        totals['total'] = data['paging']['total_items']
+        totals['eps'] = data['data']
+        return totals
+
+    def getWeekContacted(self, week=None, year=None):
+        """
+        Extrae a las personas, y el número de personas, que han sido contactadas en EXPA desde el lunes anterior. If no week or year arguments are given, uses the current week
+
+        returns: A dictionary with the following structure:
+            {'total': *number of people who registered that week*,
+             'eps': *the eps who registered*}
+        """
+        if week == None or year == None:
+            now = datetime.now()
+            week = int(now.strftime('%W'))
+            year = int(now.strftime('%Y'))
+
+        if week == 0:
+            weekStart = "%d-01-01" % year
+        else:
+            weekStart = datetime.strptime('%d %d 1' % (year, week), '%Y %W %w').strftime('%Y-%m-%d')
+
+        weekEnd = datetime.strptime('%d %d 0' % (year, week), '%Y %W %w').strftime('%Y-%m-%d')
+
+        query = self._buildQuery(['people.json',], {
+            'filters[contacted_at[from]]':weekStart,
+            'filters[contacted_at[to]]':weekEnd,
+            'page':1,
+            'per_page':100
+        })
+        data = json.loads(requests.get(query).text)
+        totals = {}
+        totals['total'] = data['paging']['total_items']
+        totals['eps'] = data['data']
+        return totals
 
