@@ -95,7 +95,6 @@ class ExpaApi(object):
                             ans.append(person)
                         break
                 break
-        print ans
         return ans
 
     def getOPManagersData(self, opID):
@@ -213,8 +212,6 @@ class ExpaApi(object):
                 re = []
                 for i in range(1, 13):
                     monthData = self.getMonthStats(i, year, io+program, lc)
-                    print io + program + ', mes ' + str(i)
-                    print monthData
                     ma.append(monthData['MA'])
                     re.append(monthData['RE'])
                 answer[io+program] = {'MA': ma, 'RE': re}
