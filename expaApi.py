@@ -381,4 +381,78 @@ class ExpaApi(object):
         totals['total'] = data['paging']['total_items']
         totals['eps'] = data['data']
         return totals
+### Utils para el MC. Mayor obtención de datos, y el año comienza desde julio
+    def getCurrentMCYearStats(self, program, office_id):
+        """
+        Extrae el ma/re de el año MC actual (comenzando el anterior 1 de Julio, para un comité y uno de los 4 programas
+        """
+        now = datetime.now()
+        currentYear = int(now.strftime('%Y'))
+	if int(now.strftime('%m')) < 6:
+	    currentYear -= 1
+        startDate = "%d-07-01" % currentYear
 
+        endDate = now.strftime('%Y-%m-%d')
+
+        queryArgs = {
+            'basic[home_office_id]':office_id,
+            'basic[type]':self.ioDict[program[0]],
+            'end_date':endDate,
+            'programmes[]':self.programDict[program[1:]],
+            'start_date':startDate
+        }
+        query = self._buildQuery(['applications', 'analyze.json'], queryArgs)
+        response = json.loads(requests.get(query).text)['analytics']
+        return {
+            'applications': response['total_applications']['doc_count'],
+            'accepted': response['total_matched']['doc_count'],
+            'approved': response['total_approvals']['doc_count'],
+            'realized': response['total_realized']['doc_count'],
+            'completed': response['total_completed']['doc_count'],
+            }
+
+    def getCountryCurrentMCYearStats(self, program, mc=1551):
+        """
+        Extrae el ma/re de el año actual, para un comité y uno de los 4 programas
+        """
+        now = datetime.now()
+        currentYear = int(now.strftime('%Y'))
+	if int(now.strftime('%m')) < 6:
+	    currentYear -= 1
+        startDate = "%d-07-01" % currentYear
+
+        endDate = now.strftime('%Y-%m-%d')
+
+        queryArgs = {
+            'basic[home_office_id]':mc,
+            'basic[type]':self.ioDict[program[0].lower()],
+            'end_date':endDate,
+            'programmes[]':self.programDict[program[1:].lower()],
+            'start_date':startDate
+        }
+        query = self._buildQuery(['applications', 'analyze.json'], queryArgs)
+        try:
+	    mcData = json.loads(requests.get(query).text)['analytics']
+            lcData = mcData['children']['buckets']
+            response = {}
+            for lc in lcData:
+                response[lc['key']] = {
+                    'applications': lc['total_applications']['doc_count'],
+                    'accepted': lc['total_matched']['doc_count'],
+                    'approved': lc['total_approvals']['doc_count'],
+                    'realized': lc['total_realized']['doc_count'],
+                    'completed': lc['total_completed']['doc_count'],
+		}
+            response[mc] = {
+                    'applications': mcData['total_applications']['doc_count'],
+                    'accepted': mcData['total_matched']['doc_count'],
+                    'approved': mcData['total_approvals']['doc_count'],
+                    'realized': mcData['total_realized']['doc_count'],
+                    'completed': mcData['total_completed']['doc_count'],
+                }    
+
+        except KeyError as e:
+            print e
+            print json.loads(requests.get(query).text)
+            raise e
+        return response
