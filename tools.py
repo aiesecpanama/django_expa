@@ -1,3 +1,4 @@
+#encoding:utf-8
 from __future__ import unicode_literals
 
 def getContactData(person):
@@ -6,8 +7,11 @@ def getContactData(person):
     """
     personDict = {"name": person["full_name"]}
     contactData = {}
-    if person["contact_info"] is not None:
-        contactData = person['contact_info']
+    try:
+        if person['contact_info'] is not None: #Para evitar una excepción
+            contactData = person['contact_info']
+    except KeyError:
+        pass
     contactData["altMail"] = person["email"]
     personDict["contactData"] = contactData
     return personDict

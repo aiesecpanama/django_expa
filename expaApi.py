@@ -121,7 +121,8 @@ class ExpaApi(object):
             'start_date':'%d-%02d-01' % (year, month)
         }
         query = self._buildQuery(['applications', 'analyze.json'], queryArgs)
-        response = json.loads(requests.get(query).text)['analytics']
+        raw_response = requests.get(query).text
+        response = json.loads(raw_response)['analytics']
         return {'MA': response['total_approvals']['doc_count'], 'RE': response['total_realized']['doc_count']}
 
     def getWeekStats(self, week, year, program, lc=1395):
@@ -148,7 +149,8 @@ class ExpaApi(object):
             'start_date':weekStart
         }
         query = self._buildQuery(['applications', 'analyze.json'], queryArgs)
-        response = json.loads(requests.get(query).text)['analytics']
+        rawResponse = requests.get(query).text
+        response = json.loads(rawResponse)['analytics']
         return {
             'MA': response['total_approvals']['doc_count'],
             'RE': response['total_realized']['doc_count']
@@ -191,7 +193,7 @@ class ExpaApi(object):
         re = []
         maTotal = 0
         reTotal = 0
-        for i in range(currentWeek+1):
+        for i in range(currentWeek + 1):
             weekData = self.getWeekStats(i, currentYear, program, office)
             ma.append(weekData['MA'])
             maTotal += weekData['MA']
@@ -200,6 +202,37 @@ class ExpaApi(object):
         totals = {'MATOTAL':maTotal, 'RETOTAL':reTotal}
         weekly = {'MA': ma, 'RE': re}
         return {'totals': totals, 'weekly': weekly}
+
+    def getProgramMonthlyPerformance(self, program, office=1395):
+        """
+        For a given AIESEC office and program, returns its monthly performance, plus its total one during the year.
+
+        Returns: The following dictionary structure:
+        {'totals': {
+            'MATOTAL': *Total matches in the year*,
+            'RETOTAL': *Total realizations in the year*
+            },
+        'monthly': {
+            'MA':[*matches month 1*, *matches month 2*, ...],
+            'RE':[*realizations month 0*, *realizations month 1*, ...],
+        }
+        """
+        now = datetime.now()
+        currentMonth = int(now.strftime('%m'))
+        currentYear = int(now.strftime('%Y'))
+        ma = []
+        re = []
+        maTotal = 0
+        reTotal = 0
+        for i in range(currentMonth):
+            monthData = self.getMonthStats(i + 1, currentYear, program, office)
+            ma.append(monthData['MA'])
+            maTotal += monthData['MA']
+            re.append(monthData['RE'])
+            reTotal += monthData['RE']
+        totals = {'MATOTAL':maTotal, 'RETOTAL':reTotal}
+        monthly = {'MA': ma, 'RE': re}
+        return {'totals': totals, 'monthly': monthly}
 
     def getLCYearlyPerformance(self, year, lc=1395):
         """
@@ -299,15 +332,16 @@ class ExpaApi(object):
 ############ Analytics sobre people, que permitan obtener personas que cumplen o no cumplen ciertos criterios
 ####################
 
-    def getUncontactedEPs(self):
+    def getUncontactedEPs(self, officeID):
         """
-        Returns all EPs belonging to the token owner's LC who have not been contacted yet, up to 100. It also returns the total number.
+        Returns all EPs belonging to the office given as parameter who have not been contacted yet, up to 150. It also returns the total number.
         """
         query = self._buildQuery(['people.json',], {
             'filters[contacted]': 'false',
             'filters[registered[from]]':'2016-01-01',
+            'filters[home_committee]':officeID,
             'page':1,
-            'per_page':100
+            'per_page':150
         })
         data = json.loads(requests.get(query).text)
         totals = {}
@@ -315,7 +349,7 @@ class ExpaApi(object):
         totals['eps'] = data['data']
         return totals
 
-    def getWeekRegistered(self, week=None, year=None):
+    def getWeekRegistered(self, officeID, week=None, year=None):
         """
         Extrae a las personas, y el número de personas, que se registraron en EXPA desde el lunes anterior. If no week or year arguments are given, uses the current week
 
@@ -339,7 +373,8 @@ class ExpaApi(object):
             'filters[registered[from]]':weekStart,
             'filters[registered[to]]':weekEnd,
             'page':1,
-            'per_page':100
+            'per_page':150,
+            'filters[home_committee]':officeID,
         })
         data = json.loads(requests.get(query).text)
         totals = {}
@@ -347,7 +382,7 @@ class ExpaApi(object):
         totals['eps'] = data['data']
         return totals
 
-    def getWeekContacted(self, week=None, year=None):
+    def getWeekContacted(self, officeID, week=None, year=None):
         """
         Extrae a las personas, y el número de personas, que han sido contactadas en EXPA desde el lunes anterior. If no week or year arguments are given, uses the current week
 
@@ -370,8 +405,9 @@ class ExpaApi(object):
         query = self._buildQuery(['people.json',], {
             'filters[contacted_at[from]]':weekStart,
             'filters[contacted_at[to]]':weekEnd,
+            'filters[home_committee]':officeID,
             'page':1,
-            'per_page':100
+            'per_page':150
         })
         data = json.loads(requests.get(query).text)
         totals = {}
