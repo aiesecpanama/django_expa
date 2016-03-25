@@ -7,7 +7,7 @@ import requests
 import urllib
 
 import calendar
-from datetime import datetime
+from datetime import datetime, timedelta
 from . import tools
 
 #from django_podio.api import PodioApi
@@ -414,6 +414,46 @@ class ExpaApi(object):
         totals['total'] = data['paging']['total_items']
         totals['eps'] = data['data']
         return totals
+
+
+#################
+###Utils for getting events that have happened past a certain amount of time. Useful for cronjobs, or other actions that require periodic updates
+##############
+    def get_past_interactions(self, interaction, days, officeID, today=True):
+        """
+        This method queries the API for the people who have interacted with EXPA and the OP in some way, such as signing in, being contacted or being interviewed.
+        params:
+            interaction: The kind of interaction you are polling for. If it is not in the interactions dict, this method will raise an error
+            days: How many days further back you want to poll EXPA and get data from
+            office: The AIESEC office you want to filter for
+            today: Whether you want to include today's date or not
+        """
+        inter_dict = {
+            'registered':'registered',
+            'contacted':'contacted_at',
+            }
+        start_date = datetime.now() - timedelta(days=days)
+
+        query_args = {
+            'filters[%s[from]]' % inter_dict[interaction]:start_date.strftime('%Y-%m-%d'),
+            'filters[home_committee]':officeID,
+            'page':1,
+            'per_page':250
+        }
+
+        if not today:
+            end_date = datetime.now() - timedelta(days=1)
+            query_args['filters[%s[to]]' % inter_dict[interaction]] = end_date.strftime('%Y-%m-%d')
+
+        query = self._buildQuery(['people.json',], query_args)
+        data = json.loads(requests.get(query).text)
+        totals = {}
+        totals['total'] = data['paging']['total_items']
+        totals['eps'] = data['data']
+        return totals
+
+
+
 ### Utils para el MC. Mayor obtención de datos, y el año comienza desde julio
     def getCurrentMCYearStats(self, program, office_id):
         """
