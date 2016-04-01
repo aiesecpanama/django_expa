@@ -8,7 +8,7 @@ import urllib
 
 import calendar
 from datetime import datetime, timedelta
-from . import tools
+from . import tools, settings, models
 
 #from django_podio.api import PodioApi
 
@@ -19,12 +19,22 @@ class ExpaApi(object):
     """
 
     _apiUrl = "https://gis-api.aiesec.org/v1/{palabra1}/{palabra2}?access_token={token}"
+    AUTH_URL  = "https://auth.aiesec.org/users/sign_in"
 
     ioDict = {'i': 'opportunity', 'o': 'person'}
     programDict = {'gcdp': 1, 'gip': '2'}
 
-    def __init__(self):
-        self.token = requests.post("http://apps.aiesecandes.org/api/token").text
+    def __init__(self, account=None):
+        if account is None:
+            account = settings.DEFAULT_ACCOUNT
+        password = models.LoginData.objects.get(email=account).password
+        params = {
+            'user[email]': account,
+            'user[password]': base64.b64decode(password)
+            }
+        response = requests.post( self.AUTH_URL, data=params, verify=False)
+        self.token = response.history[-1].cookies["expa_token"]
+        #self.token = requests.post("http://apps.aiesecandes.org/api/token").text
 
     def _buildQuery(self, routes, queryParams=None, version='v2'):
         """
@@ -207,7 +217,7 @@ class ExpaApi(object):
                 re.append(weekData['RE'])
                 reTotal += weekData['RE']
             except TypeError:
-                pass
+                break
         totals = {'MATOTAL':maTotal, 'RETOTAL':reTotal}
         weekly = {'MA': ma, 'RE': re}
         return {'totals': totals, 'weekly': weekly}
