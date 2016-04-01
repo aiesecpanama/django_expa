@@ -150,11 +150,17 @@ class ExpaApi(object):
         }
         query = self._buildQuery(['applications', 'analyze.json'], queryArgs)
         rawResponse = requests.get(query).text
-        response = json.loads(rawResponse)['analytics']
-        return {
-            'MA': response['total_approvals']['doc_count'],
-            'RE': response['total_realized']['doc_count']
-            }
+        try:
+            response = json.loads(rawResponse)['analytics']
+            return {
+                'MA': response['total_approvals']['doc_count'],
+                'RE': response['total_realized']['doc_count']
+                }
+        except ValueError:
+            return {
+                'MA':'EXPA ERROR',
+                'RE':'EXPA ERROR'
+                }
 
     def getLCWeeklyPerformance(self, lc=1395):
         """
@@ -194,11 +200,14 @@ class ExpaApi(object):
         maTotal = 0
         reTotal = 0
         for i in range(currentWeek + 1):
-            weekData = self.getWeekStats(i, currentYear, program, office)
-            ma.append(weekData['MA'])
-            maTotal += weekData['MA']
-            re.append(weekData['RE'])
-            reTotal += weekData['RE']
+            try:
+                weekData = self.getWeekStats(i, currentYear, program, office)
+                ma.append(weekData['MA'])
+                maTotal += weekData['MA']
+                re.append(weekData['RE'])
+                reTotal += weekData['RE']
+            except TypeError:
+                pass
         totals = {'MATOTAL':maTotal, 'RETOTAL':reTotal}
         weekly = {'MA': ma, 'RE': re}
         return {'totals': totals, 'weekly': weekly}
@@ -342,6 +351,24 @@ class ExpaApi(object):
             'filters[home_committee]':officeID,
             'page':1,
             'per_page':150
+        })
+        data = json.loads(requests.get(query).text)
+        totals = {}
+        totals['total'] = data['paging']['total_items']
+        totals['eps'] = data['data']
+        return totals
+
+    def get_matchable_EPs(self, officeID):
+        """
+        Returns all EPs belonging to the office given as parameter who are available for match with other entities, up to 250. It also returns their total number.
+        """
+        query = self._buildQuery(['people.json',], {
+            'filters[interviewed]': 'true',
+            'filters[home_committee]':officeID,
+            'filters[statuses][]':'open',
+            'filters[statuses][]':'in progress',
+            'page':1,
+            'per_page':250
         })
         data = json.loads(requests.get(query).text)
         totals = {}
