@@ -5,6 +5,7 @@ Module containing the ExpaApi class
 import json
 import requests
 import urllib
+import base64
 
 import calendar
 from datetime import datetime, timedelta
