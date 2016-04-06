@@ -458,6 +458,20 @@ class ExpaApi(object):
 ###Utils for getting events that have happened past a certain amount of time. Useful for cronjobs, or other actions that require periodic updates
 ##############
     def get_past_interactions(self, interaction, days, officeID, today=True):
+        inter_dict = {
+            'registered':'person',
+            'contacted':'person',
+            'applied':'application',
+            'accepted':'application',
+            'realized':'application',
+            }
+        interaction_type = inter_dict[interaction]
+        if interaction_type == 'person':
+            return self.get_past_person_interactions(interaction, days, officeID, today)
+        elif interaction_type == 'application':
+            return self.get_past_application_interactions(interaction, days, officeID, today)
+
+    def get_past_person_interactions(self, interaction, days, officeID, today=True):
         """
         This method queries the API for the people who have interacted with EXPA and the OP in some way, such as signing in, being contacted or being interviewed.
         params:
@@ -471,7 +485,6 @@ class ExpaApi(object):
             'contacted':'contacted_at',
             }
         start_date = datetime.now() - timedelta(days=days)
-
         query_args = {
             'filters[%s[from]]' % inter_dict[interaction]:start_date.strftime('%Y-%m-%d'),
             'filters[home_committee]':officeID,
@@ -491,6 +504,44 @@ class ExpaApi(object):
         return totals
 
 
+###########################
+#Methods that deal with extracting information from the applications API
+###########################
+    def get_past_application_interactions(self, interaction, days, officeID, today=True):
+        """
+        This method queries the API for the people who have interacted with EXPA and the OP in some way, such as signing in, being contacted or being interviewed.
+        params:
+            interaction: The kind of interaction you are polling for. If it is not in the interactions dict, this method will raise an error
+            days: How many days further back you want to poll EXPA and get data from
+            office: The AIESEC office you want to filter for
+            today: Whether you want to include today's date or not
+        """
+        inter_dict = {
+            'applied':'created_at',
+            'accepted':'date_matched',
+            'an_signed':'date_an_signed',
+            'approved':'date_approved',
+            'realized':'date_realized',
+            }
+        start_date = datetime.now() - timedelta(days=days)
+
+        query_args = {
+            'filters[%s[from]]' % inter_dict[interaction]:start_date.strftime('%Y-%m-%d'),
+            'filters[home_committee]':officeID,
+            'page':1,
+            'per_page':250
+        }
+
+        if not today:
+            end_date = datetime.now() - timedelta(days=1)
+            query_args['filters[%s[to]]' % inter_dict[interaction]] = end_date.strftime('%Y-%m-%d')
+
+        query = self._buildQuery(['applications.json',], query_args)
+        data = json.loads(requests.get(query).text)
+        totals = {}
+        totals['total'] = data['paging']['total_items']
+        totals['items'] = data['data']
+        return totals
 
 ### Utils para el MC. Mayor obtención de datos, y el año comienza desde julio
     def getCurrentMCYearStats(self, program, office_id):
