@@ -13,6 +13,9 @@ from . import tools, settings, models
 
 #from django_podio.api import PodioApi
 
+class ApiUnavailableException(Exception):
+    pass
+
 class ExpaApi(object):
     """
     This class is meant to encapsulate and facilitate the development of methods that extract information from the GIS API. Whenever a new object of this class is created, it generates a new access token which will be used for all method calls.
@@ -50,6 +53,16 @@ class ExpaApi(object):
         baseUrl = "https://gis-api.aiesec.org/{version}/{routes}?{params}"
         queryParams['access_token'] = self.token
         return baseUrl.format(version=version, routes="/".join(routes), params=urllib.urlencode(queryParams, True))
+
+    def make_query(self, routes, query_params=None, version='v2'):
+        query = self._buildQuery(routes, query_params, version)
+        response = requests.get(query)
+        try:
+            data = json.loads(response.text)
+            return data
+        except ValueError:
+            pass
+        
 
     def getOpportunity(self, opID):
         """
@@ -271,9 +284,9 @@ class ExpaApi(object):
         return answer
 
 #Métodos relacionados con el año actual
-    def getCurrentYearStats(self, program, lc=1395):
+    def getCurrentYearStats(self, program, officeID=1395):
         """
-        Extrae el ma/re de el año actual, para un comité y uno de los 4 programas
+        Extrae el ma/re de el año actual, para una oficina y uno de los 4 programas
         """
         now = datetime.now()
         currentYear = int(now.strftime('%Y'))
@@ -282,7 +295,7 @@ class ExpaApi(object):
         endDate = now.strftime('%Y-%m-%d')
 
         queryArgs = {
-            'basic[home_office_id]':lc,
+            'basic[home_office_id]':officeID,
             'basic[type]':self.ioDict[program[0]],
             'end_date':endDate,
             'programmes[]':self.programDict[program[1:]],
