@@ -476,6 +476,8 @@ class ExpaApi(object):
             'contacted':'person',
             'applied':'application',
             'accepted':'application',
+            'an_signed':'application',
+            'approved':'application',
             'realized':'application',
             }
         interaction_type = inter_dict[interaction]
@@ -540,7 +542,9 @@ class ExpaApi(object):
 
         query_args = {
             'filters[%s[from]]' % inter_dict[interaction]:start_date.strftime('%Y-%m-%d'),
-            'filters[home_committee]':officeID,
+            'filters[person_committee]':officeID,
+            'filters[for]':'people',
+            'filters[programmes][]':[1,2],
             'page':1,
             'per_page':250
         }
@@ -550,6 +554,7 @@ class ExpaApi(object):
             query_args['filters[%s[to]]' % inter_dict[interaction]] = end_date.strftime('%Y-%m-%d')
 
         query = self._buildQuery(['applications.json',], query_args)
+        print query
         data = json.loads(requests.get(query).text)
         totals = {}
         totals['total'] = data['paging']['total_items']
