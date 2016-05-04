@@ -515,7 +515,7 @@ class ExpaApi(object):
         data = json.loads(requests.get(query).text)
         totals = {}
         totals['total'] = data['paging']['total_items']
-        totals['eps'] = data['data']
+        totals['items'] = data['data']
         return totals
 
 
