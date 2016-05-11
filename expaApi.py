@@ -470,7 +470,7 @@ class ExpaApi(object):
 #################
 ###Utils for getting events that have happened past a certain amount of time. Useful for cronjobs, or other actions that require periodic updates
 ##############
-    def get_past_interactions(self, interaction, days, officeID, today=True):
+    def get_past_interactions(self, interaction, days, officeID, today=True, program='ogx'):
         inter_dict = {
             'registered':'person',
             'contacted':'person',
@@ -484,7 +484,7 @@ class ExpaApi(object):
         if interaction_type == 'person':
             return self.get_past_person_interactions(interaction, days, officeID, today)
         elif interaction_type == 'application':
-            return self.get_past_application_interactions(interaction, days, officeID, today)
+            return self.get_past_application_interactions(interaction, days, officeID, today, program)
 
     def get_past_person_interactions(self, interaction, days, officeID, today=True):
         """
@@ -504,7 +504,7 @@ class ExpaApi(object):
             'filters[%s[from]]' % inter_dict[interaction]:start_date.strftime('%Y-%m-%d'),
             'filters[home_committee]':officeID,
             'page':1,
-            'per_page':250
+            'per_page':500
         }
 
         if not today:
@@ -522,7 +522,7 @@ class ExpaApi(object):
 ###########################
 #Methods that deal with extracting information from the applications API
 ###########################
-    def get_past_application_interactions(self, interaction, days, officeID, today=True):
+    def get_past_application_interactions(self, interaction, days, officeID, today, program):
         """
         This method queries the API for the people who have interacted with EXPA and the OP in some way, such as signing in, being contacted or being interviewed.
         params:
@@ -542,13 +542,15 @@ class ExpaApi(object):
 
         query_args = {
             'filters[%s[from]]' % inter_dict[interaction]:start_date.strftime('%Y-%m-%d'),
-            'filters[person_committee]':officeID,
-            'filters[for]':'people',
             'filters[programmes][]':[1,2],
             'page':1,
-            'per_page':250
+            'per_page':500
         }
-
+        if program == 'ogx':
+            query_args['filters[for]'] = 'people'
+            query_args['filters[person_committee]'] = officeID
+        elif program == 'icx':
+            query_args['filters[opportunity_committee]'] = officeID
         if not today:
             end_date = datetime.now() - timedelta(days=1)
             query_args['filters[%s[to]]' % inter_dict[interaction]] = end_date.strftime('%Y-%m-%d')
