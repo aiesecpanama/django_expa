@@ -1,5 +1,5 @@
-
- de interacción con la API de EXPA
+=========================================
+Módulo de interacción con la API de EXPA
 =========================================
 
 Introducción
