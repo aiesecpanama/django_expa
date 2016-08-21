@@ -9,7 +9,7 @@ Este módulo está diseñado para manejar la autenticación y la obtención de d
 
 Instalación
 -----------
-1. Instalar el módulo utilizando en el proyecto principal el comando ``git submodules add https://github.com/camiloforero/django_expa.git``
+1. Instalar el módulo utilizando en el proyecto principal el comando ``git submodule add https://github.com/camiloforero/django_expa.git``
 2. Agregar el módulo (``django_expa``) a ``INSTALLED_APPS`` dentro del archivo ``settings.py``. Esto asegura que django detecte las migraciones de la base de datos
 3. Ejecutar los comandos ``python manage.py makemigrations`` y ``python manage.py migrate``
 4. Copiar el archivo example_settings.py a settings.py dentro del mismo directorio
