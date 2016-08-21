@@ -24,9 +24,10 @@ class ExpaApi(object):
 
     _apiUrl = "https://gis-api.aiesec.org/v1/{palabra1}/{palabra2}?access_token={token}"
     AUTH_URL  = "https://auth.aiesec.org/users/sign_in"
-
+    #This dict takes the first letter of a pgogram to decide whether this API's methods should look for information about opportunities or about people
     ioDict = {'i': 'opportunity', 'o': 'person'}
-    programDict = {'gcdp': 1, 'gip': '2'}
+    #This dict takes the other letters to know whether it is a global volunteer or a global internship program
+    programDict = {'gv': 1, 'gip': '2'}
 
     def __init__(self, account=None):
         if account is None:
@@ -93,7 +94,7 @@ class ExpaApi(object):
         lcs = json.loads(response)['suboffices']
         ans = []
         for lc in lcs:
-            newLC = {'nombre':lc['full_name']}
+            newLC = {'nombre':lc['full_name'], 'expaID':lc['id']}
             data = self.getLCEBContactList(str(lc['id']))
             newLC['cargos'] = data
             ans.append(newLC)
@@ -105,17 +106,20 @@ class ExpaApi(object):
         """
         ans = []
         data = json.loads(requests.get(self._buildQuery(['committees', str(lcID), 'terms.json'])).text)
+        #recorre todos los periodos hasta encontrar el del 2016
         for term in data['data']:
             if term['short_name'] == '2016':
                 info = requests.get(self._buildQuery(['committees', str(lcID), 'terms', str(term['id']) + '.json'])).text
                 info = json.loads(info)
+                #recorre todos los equipos del periodo hasta encontrar el de la EB
                 for team in info['teams']:
                     if team["team_type"] == "eb":
                         for position in team['positions']:
                             person = {}
-                            if position['person_id'] is not None:
-                                person = tools.getContactData(json.loads(requests.get(self._buildQuery(['people', str(position['person_id']) + '.json'])).text))
-                            person['cargo'] = position['position_name']
+                            if position['person'] is not None:
+                                print self._buildQuery(['people', str(position['person']['id']) + '.json'])
+                                person = tools.getContactData(json.loads(requests.get(self._buildQuery(['people', str(position['person']['id']) + '.json'])).text))
+                            person['cargo'] = position['name']
                             ans.append(person)
                         break
                 break
@@ -320,9 +324,9 @@ class ExpaApi(object):
 
         queryArgs = {
             'basic[home_office_id]':lc,
-            'basic[type]':self.ioDict[program[0]],
+            'basic[type]':self.ioDict[program[0].lower()],
             'end_date':endDate,
-            'programmes[]':self.programDict[program[1:]],
+            'programmes[]':self.programDict[program[1:].lower()],
             'start_date':startDate
         }
         query = self._buildQuery(['applications', 'analyze.json'], queryArgs)
