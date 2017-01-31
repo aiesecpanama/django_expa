@@ -4,6 +4,7 @@ Module containing the ExpaApi class
 """
 import json
 import requests
+import time
 import urllib
 import base64
 
@@ -12,9 +13,16 @@ from datetime import datetime, timedelta
 from . import tools, settings, models
 
 #from django_podio.api import PodioApi
+from requests.packages.urllib3.exceptions import InsecureRequestWarning
+requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 
-class ApiUnavailableException(Exception):
-    pass
+class APIUnavailableException(Exception):
+    """
+        This error is raised whenever the EXPA API is not working as expected.
+    """
+    def __init__(self, response, error_message):
+        self.response = response
+        self.error_message = error_message
 
 class ExpaApi(object):
     """
@@ -29,7 +37,14 @@ class ExpaApi(object):
     #This dict takes the other letters to know whether it is a global volunteer or a global internship program
     programDict = {'gv': 1, 'get': 2, 'gx':[1,2], 'cx':[1,2]}
 
-    def __init__(self, account=None):
+    def __init__(self, account=None, fail_attempts=1, fail_interval=10):
+        """
+        Default method initialization.
+        params?
+        account: If this argument is provided, and the account is present in the database, the expa API will try to use this account to authenticate and obtain the auth token. Otherwise it will use the default account in the settings file
+        fail_attempts: Defines how many times will this instance try to redo a failed request before failing and throwing an EXPA error.
+        fail_interval: Defines the time this instance will wait before trying to redo a failed request.
+        """
         if account is None:
             account = settings.DEFAULT_ACCOUNT
         password = models.LoginData.objects.get(email=account).password
@@ -39,6 +54,8 @@ class ExpaApi(object):
             }
         response = requests.post( self.AUTH_URL, data=params, verify=False)
         self.token = response.history[-1].cookies["expa_token"]
+        self.fail_attempts = fail_attempts
+        self.fail_interval = fail_interval
         #self.token = requests.post("http://apps.aiesecandes.org/api/token").text
 
     def _buildQuery(self, routes, queryParams=None, version='v2'):
@@ -56,13 +73,25 @@ class ExpaApi(object):
         return baseUrl.format(version=version, routes="/".join(routes), params=urllib.urlencode(queryParams, True))
 
     def make_query(self, routes, query_params=None, version='v2'):
+        """
+        This method both builds a query and executes it using the requests module. If it doesn't work because of EXPA issues, it will retry an amount of times equal to the 'fail_attempts' attribute before raising an APIUnavailableException
+        """
         query = self._buildQuery(routes, query_params, version)
-        response = requests.get(query)
-        try:
-            data = json.loads(response.text)
-            return data
-        except ValueError:
-            pass
+        fail_attempts = self.fail_attempts
+        #Tries the request until it works
+        while fail_attempts > 0:
+            response = requests.get(query)
+            if response.status_code == 200: #TODO: Check if the answer is a 200
+                data = response.json()
+                return data #This returns the method and avoids it reaching the end stage and continuing.
+            else: #TODO: Check if the answer is a service unavailable, back end server at capacity
+                fail_attempts = fail_attempts - 1
+                error_message = "The request has failed with error code %s and error message %s. Remaining attempts: %s" % (response.status_code, response.text, fail_attempts)
+                print error_message
+                if fail_attempts > 0:
+                    time.sleep(self.fail_interval)
+        
+        raise APIUnavailableException(response, error_message)
         
 
     def getOpportunity(self, opID):
@@ -83,7 +112,7 @@ class ExpaApi(object):
         """
         Devuelve a todos los EPs que son administrados por el EP manager cuya EXPA ID entra como parámetro
        """
-        response = requests.get(self._buildQuery(['people.json'], {'filters[managers][]':[expaID]})).text
+        response = self.make_query(['people.json'], {'filters[managers][]':[expaID]})
         return response
 
     def getCountryEBs(self, mcID):
@@ -105,7 +134,7 @@ class ExpaApi(object):
         Este método retorna un diccionario con las personas que conforman la junta ejecutiva del LC cuya ID entra como parámetro, para el periodo 2016
         """
         ans = []
-        data = json.loads(requests.get(self._buildQuery(['committees', str(lcID), 'terms.json'])).text)
+        data = self.make_query(['committees', str(lcID), 'terms.json'])
         #recorre todos los periodos hasta encontrar el del 2016
         for term in data['data']:
             if term['short_name'] == '2016':
@@ -118,7 +147,7 @@ class ExpaApi(object):
                             person = {}
                             if position['person'] is not None:
                                 print self._buildQuery(['people', str(position['person']['id']) + '.json'])
-                                person = tools.getContactData(json.loads(requests.get(self._buildQuery(['people', str(position['person']['id']) + '.json'])).text))
+                                person = tools.getContactData(self.make_query(['people', str(position['person']['id']) + '.json']))
                             person['cargo'] = position['name']
                             ans.append(person)
                         break
@@ -130,65 +159,74 @@ class ExpaApi(object):
         Éste método devuelve un diccionario con todos los EP Managers y sus datos de contacto de la oportunidad cuya ID entra como parámetro
         """
         #hace un request GET sobre la oportunidad con la ID dada, obtiene el texto, o lo transforma de json a un objeto de python
-        opportunity = json.loads(requests.get(self._buildQuery(['opportunities', opID])).text)
+        opportunity = self.make_query(['opportunities', opID])
         managerData = opportunity["managers"]
         managers = []
         for manager in managerData:
             managers.append(tools.getContactData(manager))
         return managers
 
-    def getMonthStats(self, month, year, program, lc=1395):
+    def get_stats(self, officeID, program, start_date, end_date):
+        """
+        Este método extrae las estadísticas, para una oficina dada y un periodo de tiempo dado. Es un método maestro, y todos los otros métodos que obtengan dichas estadísticas deberían llamar a este.
+        """
+        queryArgs = {
+            'basic[home_office_id]':officeID,
+            'basic[type]':self.ioDict[program[0].lower()],
+            'end_date':end_date,
+            'programmes[]':self.programDict[program[1:].lower()],
+            'start_date':start_date,
+        }
+        try:
+            response = self.make_query(['applications', 'analyze.json'], queryArgs)['analytics']
+            return {
+                'applications': response['total_applications']['doc_count'],
+                'accepted': response['total_matched']['doc_count'],
+                'approved': response['total_approvals']['doc_count'],
+                'realized': response['total_realized']['doc_count'],
+                'completed': response['total_completed']['doc_count'],
+            }
+        except APIUnavailableException:
+            return {
+                'applications':"EXPA ERROR",
+                'accepted':"EXPA ERROR",
+                'approved':"EXPA ERROR",
+                'realized':"EXPA ERROR",
+                'completed':"EXPA ERROR",
+            }
+            
+
+    def get_past_stats(self, days, program, officeID):
         """
         Extrae el approved/realized de un mes específico, en un año específico, para un comité y uno de los 4 programas
         """
-        queryArgs = {
-            'basic[home_office_id]':lc,
-            'basic[type]':self.ioDict[program[0]],
-            'end_date':'%d-%02d-%02d' % (year, month, calendar.monthrange(year, month)[1]),
-            'programmes[]':self.programDict[program[1:]],
-            'start_date':'%d-%02d-01' % (year, month)
-        }
-        query = self._buildQuery(['applications', 'analyze.json'], queryArgs)
-        raw_response = requests.get(query).text
-        response = json.loads(raw_response)['analytics']
-        return {'approved': response['total_approvals']['doc_count'], 'realized': response['total_realized']['doc_count']}
+        now = datetime.now()
+        start_date = (now - timedelta(days=days)).strftime('%Y-%m-%d')
+        end_date = now.strftime('%Y-%m-%d')
+        
+        return self.get_stats(officeID, program, start_date, end_date)
+
+    def getMonthStats(self, month, year, program, officeID):
+        """
+        Extrae el approved/realized de un mes específico, en un año específico, para un comité y uno de los 4 programas
+        """
+        start_date = '%d-%02d-01' % (year, month)
+        end_date = '%d-%02d-%02d' % (year, month, calendar.monthrange(year, month)[1])
+        
+        return self.get_stats(officeID, program, start_date, end_date)
 
     def getWeekStats(self, week, year, program, lc=1395):
         """
             Extrae el ip/ma/re de un mes específico, en un año específico, para un comité y uno de los 4 programas
-
-
-            returns: A dictionary with the following structure:
-                {'MA': *number of matches in the given week*,
-                 'RE': *# of realizations in the given week*}
         """
         if week == 0:
-            weekStart = "%d-01-01" % year
+            start_date = "%d-01-01" % year
         else:
-            weekStart = datetime.strptime('%d %d 1' % (year, week), '%Y %W %w').strftime('%Y-%m-%d')
+            start_date = datetime.strptime('%d %d 1' % (year, week), '%Y %W %w').strftime('%Y-%m-%d')
 
-        weekEnd = datetime.strptime('%d %d 0' % (year, week), '%Y %W %w').strftime('%Y-%m-%d')
+        end_date = datetime.strptime('%d %d 0' % (year, week), '%Y %W %w').strftime('%Y-%m-%d')
 
-        queryArgs = {
-            'basic[home_office_id]':lc,
-            'basic[type]':self.ioDict[program[0]],
-            'end_date':weekEnd,
-            'programmes[]':self.programDict[program[1:]],
-            'start_date':weekStart
-        }
-        query = self._buildQuery(['applications', 'analyze.json'], queryArgs)
-        rawResponse = requests.get(query).text
-        try:
-            response = json.loads(rawResponse)['analytics']
-            return {
-                'MA': response['total_approvals']['doc_count'],
-                'RE': response['total_realized']['doc_count']
-                }
-        except ValueError:
-            return {
-                'MA':'EXPA ERROR',
-                'RE':'EXPA ERROR'
-                }
+        return self.get_stats(officeID, program, start_date, end_date)
 
     def getLCWeeklyPerformance(self, lc=1395):
         """
@@ -202,7 +240,7 @@ class ExpaApi(object):
         """
         answer = {}
         for io in ['i', 'o']:
-            for program in ['gcdp', 'gip']:
+            for program in ['gv', 'get']:
                 answer[io+program] = self.getProgramWeeklyPerformance(io+program, lc)
         return answer
 
@@ -294,23 +332,9 @@ class ExpaApi(object):
         """
         now = datetime.now()
         currentYear = int(now.strftime('%Y'))
-        startDate = "%d-01-01" % currentYear
-
-        endDate = now.strftime('%Y-%m-%d')
-
-        queryArgs = {
-            'basic[home_office_id]':officeID,
-            'basic[type]':self.ioDict[program[0]],
-            'end_date':endDate,
-            'programmes[]':self.programDict[program[1:]],
-            'start_date':startDate
-        }
-        query = self._buildQuery(['applications', 'analyze.json'], queryArgs)
-        response = json.loads(requests.get(query).text)['analytics']
-        return {
-            'approved': response['total_approvals']['doc_count'],
-            'realized': response['total_realized']['doc_count']
-            }
+        start_date = "%d-01-01" % currentYear
+        end_date = now.strftime('%Y-%m-%d')
+        return self.get_stats(officeID, program, start_date, end_date)
 
     def getCountryCurrentYearStats(self, program, lc):
         """
@@ -335,27 +359,20 @@ class ExpaApi(object):
             'programmes[]':self.programDict[program[1:].lower()],
             'start_date':start_date
         }
-        query = self._buildQuery(['applications', 'analyze.json'], queryArgs)
-        try:
-            mcData = json.loads(requests.get(query).text)['analytics']
-            lcData = mcData['children']['buckets']
-            response = {
-                officeID:{
-                    'approved': mcData['total_approvals']['doc_count'],
-                    'realized': mcData['total_realized']['doc_count'],
-                }
+        mcData = self.make_query(['applications', 'analyze.json'], queryArgs)['analytics']
+        lcData = mcData['children']['buckets']
+        response = {
+            officeID:{
+                'approved': mcData['total_approvals']['doc_count'],
+                'realized': mcData['total_realized']['doc_count'],
             }
-            for lc in lcData:
-                #Guarda la respuesta en un diccionario cuya llave es el office_id del LC, y cuyo valor son los approved y las realizaciones
-                response[lc['key']] = {
-                    'approved': lc['total_approvals']['doc_count'], 
-                    'realized': lc['total_realized']['doc_count'],
-                }
-
-        except KeyError as e:
-            print e
-            print json.loads(requests.get(query).text)
-            raise e
+        }
+        for lc in lcData:
+            #Guarda la respuesta en un diccionario cuya llave es el office_id del LC, y cuyo valor son los approved y las realizaciones
+            response[lc['key']] = {
+                'approved': lc['total_approvals']['doc_count'], 
+                'realized': lc['total_realized']['doc_count'],
+            }
         return response
 
 #Listas de MCs, LCs, regiones y similares
@@ -389,14 +406,13 @@ class ExpaApi(object):
         """
         Returns all EPs belonging to the office given as parameter who have not been contacted yet, up to 150. It also returns the total number.
         """
-        query = self._buildQuery(['people.json',], {
+        data = self.make_query(['people.json',], {
             'filters[contacted]': 'false',
             'filters[registered[from]]':'2016-01-01',
             'filters[home_committee]':officeID,
             'page':1,
             'per_page':150
         })
-        data = json.loads(requests.get(query).text)
         totals = {}
         totals['total'] = data['paging']['total_items']
         totals['eps'] = data['data']
@@ -406,7 +422,7 @@ class ExpaApi(object):
         """
         Returns all EPs belonging to the office given as parameter who are available for match with other entities, up to 250. It also returns their total number.
         """
-        query = self._buildQuery(['people.json',], {
+        data = self.make_query(['people.json',], {
             'filters[interviewed]': 'true',
             'filters[home_committee]':officeID,
             'filters[statuses][]':'open',
@@ -414,7 +430,6 @@ class ExpaApi(object):
             'page':1,
             'per_page':250
         })
-        data = json.loads(requests.get(query).text)
         totals = {}
         totals['total'] = data['paging']['total_items']
         totals['eps'] = data['data']
@@ -528,7 +543,6 @@ class ExpaApi(object):
             'registered':'registered',
             'contacted':'contacted_at',
             }
-        start_date = datetime.now() - timedelta(days=days)
         query_args = {
             'filters[%s[from]]' % inter_dict[interaction]:start_date,            'filters[home_committee]':officeID,
             'page':1,
@@ -537,8 +551,7 @@ class ExpaApi(object):
 
         query_args['filters[%s[to]]' % inter_dict[interaction]] = end_date
 
-        query = self._buildQuery(['people.json',], query_args)
-        data = json.loads(requests.get(query).text)
+        data = self.make_query(['people.json',], query_args)
         totals = {}
         totals['total'] = data['paging']['total_items']
         totals['items'] = data['data']
@@ -576,9 +589,7 @@ class ExpaApi(object):
             query_args['filters[person_committee]'] = officeID
         elif program[0] == 'i':
             query_args['filters[opportunity_committee]'] = officeID
-        query = self._buildQuery(['applications.json',], query_args)
-        print query
-        data = json.loads(requests.get(query).text)
+        data = self.make_query(['applications.json',], query_args)
         totals = {}
         totals['total'] = data['paging']['total_items']
         totals['items'] = data['data']
