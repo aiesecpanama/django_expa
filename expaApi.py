@@ -35,7 +35,7 @@ class ExpaApi(object):
     #This dict takes the first letter of a pgogram to decide whether this API's methods should look for information about opportunities or about people
     ioDict = {'i': 'opportunity', 'o': 'person'}
     #This dict takes the other letters to know whether it is a global volunteer or a global internship program
-    programDict = {'gv': 1, 'get': 2, 'gx':[1,2], 'cx':[1,2]}
+    programDict = {'gv':1, 'gt':2, 'get':[2,5], 'gx':[1,2,5], 'cx':[1,2,5], 'ge':5,}
 
     def __init__(self, account=None, fail_attempts=1, fail_interval=10):
         """
@@ -77,6 +77,7 @@ class ExpaApi(object):
         This method both builds a query and executes it using the requests module. If it doesn't work because of EXPA issues, it will retry an amount of times equal to the 'fail_attempts' attribute before raising an APIUnavailableException
         """
         query = self._buildQuery(routes, query_params, version)
+        print query
         fail_attempts = self.fail_attempts
         #Tries the request until it works
         while fail_attempts > 0:
@@ -420,15 +421,14 @@ class ExpaApi(object):
 
     def get_matchable_EPs(self, officeID):
         """
-        Returns all EPs belonging to the office given as parameter who are available for match with other entities, up to 250. It also returns their total number.
+        Returns all EPs belonging to the office given as parameter who are available for match with other entities, up to 300. It also returns their total number.
         """
         data = self.make_query(['people.json',], {
             'filters[interviewed]': 'true',
             'filters[home_committee]':officeID,
-            'filters[statuses][]':'open',
-            'filters[statuses][]':'in progress',
+            'filters[statuses][]':['open', 'applied'],
             'page':1,
-            'per_page':250
+            'per_page':300
         })
         totals = {}
         totals['total'] = data['paging']['total_items']
@@ -544,12 +544,12 @@ class ExpaApi(object):
             'contacted':'contacted_at',
             }
         query_args = {
-            'filters[%s[from]]' % inter_dict[interaction]:start_date,            'filters[home_committee]':officeID,
+            'filters[%s[from]]' % inter_dict[interaction]:start_date,
+            'filters[%s[to]]' % inter_dict[interaction]:end_date,
+            'filters[home_committee]':officeID,
             'page':1,
             'per_page':500,
         }
-
-        query_args['filters[%s[to]]' % inter_dict[interaction]] = end_date
 
         data = self.make_query(['people.json',], query_args)
         totals = {}
