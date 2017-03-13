@@ -2,6 +2,7 @@
 """
 Module containing the ExpaApi class
 """
+from __future__ import unicode_literals, print_function
 import json
 import requests
 import time
@@ -37,7 +38,7 @@ class ExpaApi(object):
     #This dict takes the other letters to know whether it is a global volunteer or a global internship program
     programDict = {'gv':1, 'gt':2, 'get':[2,5], 'gx':[1,2,5], 'cx':[1,2,5], 'ge':5,}
 
-    def __init__(self, account=None, fail_attempts=1, fail_interval=10):
+    def __init__(self, account=None, fail_attempts=1, fail_interval=10, user=None, pwd=None):
         """
         Default method initialization.
         params?
@@ -45,15 +46,25 @@ class ExpaApi(object):
         fail_attempts: Defines how many times will this instance try to redo a failed request before failing and throwing an EXPA error.
         fail_interval: Defines the time this instance will wait before trying to redo a failed request.
         """
-        if account is None:
-            account = settings.DEFAULT_ACCOUNT
-        password = models.LoginData.objects.get(email=account).password
+        if user and pwd:
+            account = user
+            password = base64.b64encode(pwd.encode())
+        else:
+            if account is None:
+                account = settings.DEFAULT_ACCOUNT
+            password = models.LoginData.objects.get(email=account).password
         params = {
             'user[email]': account,
-            'user[password]': base64.b64decode(password)
+            'user[password]': base64.b64decode(password).decode('utf-8')
             }
+        print(base64.b64decode(password).decode('utf-8'))
         response = requests.post( self.AUTH_URL, data=params, verify=False)
-        self.token = response.history[-1].cookies["expa_token"]
+        print(response.history[-1].cookies)
+        try:
+            self.token = response.history[-1].cookies["expa_token"]
+        except KeyError:
+            print("Cuenta inválida, o ha cambiado el modo de autenticación")
+            self.cookies = response.history[-1].cookies
         self.fail_attempts = fail_attempts
         self.fail_interval = fail_interval
         #self.token = requests.post("http://apps.aiesecandes.org/api/token").text
@@ -70,14 +81,14 @@ class ExpaApi(object):
             queryParams = {}
         baseUrl = "https://gis-api.aiesec.org/{version}/{routes}?{params}"
         queryParams['access_token'] = self.token
-        return baseUrl.format(version=version, routes="/".join(routes), params=urllib.urlencode(queryParams, True))
+        return baseUrl.format(version=version, routes="/".join(routes), params=urllib.parse.urlencode(queryParams, True))
 
     def make_query(self, routes, query_params=None, version='v2'):
         """
         This method both builds a query and executes it using the requests module. If it doesn't work because of EXPA issues, it will retry an amount of times equal to the 'fail_attempts' attribute before raising an APIUnavailableException
         """
         query = self._buildQuery(routes, query_params, version)
-        print query
+        print(query)
         fail_attempts = self.fail_attempts
         #Tries the request until it works
         while fail_attempts > 0:
@@ -88,7 +99,7 @@ class ExpaApi(object):
             else: #TODO: Check if the answer is a service unavailable, back end server at capacity
                 fail_attempts = fail_attempts - 1
                 error_message = "The request has failed with error code %s and error message %s. Remaining attempts: %s" % (response.status_code, response.text, fail_attempts)
-                print error_message
+                print(error_message)
                 if fail_attempts > 0:
                     time.sleep(self.fail_interval)
         
@@ -106,7 +117,7 @@ class ExpaApi(object):
         """
         Test method. Has one kayword argument, 'testArg', to be used when necessary
         """
-        print self
+        print(self)
         return kwargs['testArg']
 
     def getManagedEPs(self, expaID):
@@ -147,7 +158,6 @@ class ExpaApi(object):
                         for position in team['positions']:
                             person = {}
                             if position['person'] is not None:
-                                print self._buildQuery(['people', str(position['person']['id']) + '.json'])
                                 person = tools.getContactData(self.make_query(['people', str(position['person']['id']) + '.json']))
                             person['cargo'] = position['name']
                             ans.append(person)
@@ -602,10 +612,9 @@ class ExpaApi(object):
         """
         now = datetime.now()
         currentYear = int(now.strftime('%Y'))
-	if int(now.strftime('%m')) < 6:
-	    currentYear -= 1
+        if int(now.strftime('%m')) < 6:
+            currentYear -= 1
         startDate = "%d-07-01" % currentYear
-
         endDate = now.strftime('%Y-%m-%d')
 
         queryArgs = {
@@ -632,8 +641,8 @@ class ExpaApi(object):
         """
         now = datetime.now()
         currentYear = int(now.strftime('%Y'))
-	if int(now.strftime('%m')) < 6:
-	    currentYear -= 1
+        if int(now.strftime('%m')) < 6:
+            currentYear -= 1
         startDate = "%d-07-01" % currentYear
 
         endDate = now.strftime('%Y-%m-%d')
@@ -647,7 +656,7 @@ class ExpaApi(object):
         }
         query = self._buildQuery(['applications', 'analyze.json'], queryArgs)
         try:
-	    mcData = json.loads(requests.get(query).text)['analytics']
+            mcData = json.loads(requests.get(query).text)['analytics']
             lcData = mcData['children']['buckets']
             response = {}
             for lc in lcData:
@@ -667,7 +676,28 @@ class ExpaApi(object):
                 }    
 
         except KeyError as e:
-            print e
-            print json.loads(requests.get(query).text)
+            print("Error de llave:")
+            print(e)
+            print(json.loads(requests.get(query).text))
             raise e
         return response
+
+
+    def get_companies(self, officeID, program, start_date, end_date):
+        """
+        This method is still on progress
+        TODO: FInish it
+        """
+        query_args = {
+            'filters[registered[from]]':start_date,
+            'filters[registered[to]]':end_date,
+            'page':1,
+            'per_page':500,
+        }
+        if program is not None:
+            query_args['filters[programmes][]']=self.programDict[program],
+        data = self.make_query(['organisations.json'], query_args)
+        totals = {}
+        totals['total'] = data['paging']['total_items']
+        totals['items'] = data['data']
+        return totals
