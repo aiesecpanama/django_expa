@@ -8,12 +8,16 @@ import requests
 import time
 import urllib
 import base64
-
 import calendar
 from datetime import datetime, timedelta
-from . import tools, settings, models
+from bs4 import BeautifulSoup
+from future.standard_library import install_aliases
+install_aliases()
+
+from urllib.parse import urlparse, urlencode
 
 #from django_podio.api import PodioApi
+from . import tools, settings, models
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
 requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 
@@ -55,13 +59,23 @@ class ExpaApi(object):
             password = models.LoginData.objects.get(email=account).password
         params = {
             'user[email]': account,
-            'user[password]': base64.b64decode(password).decode('utf-8')
+            'user[password]': base64.b64decode(password).decode('utf-8'),
+            'commit': 'Sign in'
             }
-        print(base64.b64decode(password).decode('utf-8'))
-        response = requests.post( self.AUTH_URL, data=params, verify=False)
-        print(response.history[-1].cookies)
+        s = requests.Session()
+        token_response = s.get(self.AUTH_URL).text
+        print(token_response)
+        soup = BeautifulSoup(token_response, 'html.parser')
+        test = soup.find("form") #, name="authenticity_token").value
+        print(test)
+        token = soup.find("form").find(attrs={'name':'authenticity_token'}).attrs['value'] #, name="authenticity_token").value
+        params['authenticity_token'] = token
+        print(token)
+        response = s.post( self.AUTH_URL, data=params)
+        print(response.history[-1].text)
         try:
             self.token = response.history[-1].cookies["expa_token"]
+            print(self.token)
         except KeyError:
             print("Cuenta inválida, o ha cambiado el modo de autenticación")
             self.cookies = response.history[-1].cookies
@@ -81,7 +95,7 @@ class ExpaApi(object):
             queryParams = {}
         baseUrl = "https://gis-api.aiesec.org/{version}/{routes}?{params}"
         queryParams['access_token'] = self.token
-        return baseUrl.format(version=version, routes="/".join(routes), params=urllib.parse.urlencode(queryParams, True))
+        return baseUrl.format(version=version, routes="/".join(routes), params=urlencode(queryParams, True))
 
     def make_query(self, routes, query_params=None, version='v2'):
         """
