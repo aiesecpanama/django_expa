@@ -18,6 +18,7 @@ Instalación
 Dependencias
 ------------
 Este módulo requiere la instalación de ``requests``, instalar usando ``pip install requests``
+También requiere BeautifulSoup4, bs4 y future, future
 
 Configuración
 -------------

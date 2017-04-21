@@ -11,7 +11,7 @@ class LoginData(models.Model):
     def __str__(self):
         return self.email
     def save(self, *args, **kwargs):
-        self.password = base64.b64encode(self.password)
+        self.password = base64.b64encode(self.password.encode())
         super(LoginData, self).save(*args, **kwargs)
         
         

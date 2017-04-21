@@ -62,6 +62,7 @@ class ExpaApi(object):
             'user[password]': base64.b64decode(password).decode('utf-8'),
             'commit': 'Sign in'
             }
+        print(base64.b64decode(password).decode('utf-8'))
         s = requests.Session()
         token_response = s.get(self.AUTH_URL).text
         print(token_response)
@@ -529,15 +530,19 @@ class ExpaApi(object):
 #################
 ###Utils for getting events that have happened past a certain amount of time. Useful for cronjobs, or other actions that require periodic updates
 ##############
-    def get_past_interactions(self, interaction, days, officeID, today=True, program='ogx'):
+    def get_past_interactions(self, interaction, days, officeID, today=True, program='ogx', filters=None):
+        if not filters:
+            filters = {}
         now = datetime.now()
         start_date = (now - timedelta(days=days)).strftime('%Y-%m-%d')
         if not today:
             now = now - timedelta(days=1)
         end_date = now.strftime('%Y-%m-%d')
-        return self.get_interactions(interaction, officeID, program, start_date, end_date)
+        return self.get_interactions(interaction, officeID, program, start_date, end_date, filters)
 
-    def get_interactions(self, interaction, officeID, program, start_date, end_date):
+    def get_interactions(self, interaction, officeID, program, start_date, end_date, filters=None):
+        if not filters:
+            filters = {}
         inter_dict = {
             'registered':'person',
             'contacted':'person',
@@ -550,11 +555,11 @@ class ExpaApi(object):
 
         interaction_type = inter_dict[interaction]
         if interaction_type == 'person':
-            return self.get_person_interactions(interaction, officeID, program, start_date, end_date)
+            return self.get_person_interactions(interaction, officeID, program, start_date, end_date, filters)
         elif interaction_type == 'application':
-            return self.get_application_interactions(interaction, officeID, program, start_date, end_date)
+            return self.get_application_interactions(interaction, officeID, program, start_date, end_date, filters)
 
-    def get_person_interactions(self, interaction, officeID, program, start_date, end_date):
+    def get_person_interactions(self, interaction, officeID, program, start_date, end_date, filters):
         """
         This method queries the API for the people who have interacted with EXPA and the OP in some way, such as signing in, being contacted or being interviewed.
         params:
@@ -563,6 +568,8 @@ class ExpaApi(object):
             office: The AIESEC office you want to filter for
             today: Whether you want to include today's date or not
         """
+        if not filters:
+            filters = {}
         inter_dict = {
             'registered':'registered',
             'contacted':'contacted_at',
@@ -574,7 +581,7 @@ class ExpaApi(object):
             'page':1,
             'per_page':500,
         }
-
+        query_args.update(filters)
         data = self.make_query(['people.json',], query_args)
         totals = {}
         totals['total'] = data['paging']['total_items']
@@ -585,7 +592,7 @@ class ExpaApi(object):
 ###########################
 #Methods that deal with extracting information from the applications API
 ###########################
-    def get_application_interactions(self, interaction, officeID, program, start_date, end_date):
+    def get_application_interactions(self, interaction, officeID, program, start_date, end_date, filters):
         """
         This method queries the API for the people who have interacted with EXPA and the OP in some way, such as signing in, being contacted or being interviewed.
         params:
@@ -594,6 +601,8 @@ class ExpaApi(object):
             office: The AIESEC office you want to filter for
             today: Whether you want to include today's date or not
         """
+        if not filters:
+            filters = {}
         inter_dict = {
             'applied':'created_at',
             'accepted':'date_matched',
@@ -608,6 +617,7 @@ class ExpaApi(object):
             'page':1,
             'per_page':500,
         }
+        query_args.update(filters)
         if program[0] == 'o':
             query_args['filters[for]'] = 'people'
             query_args['filters[person_committee]'] = officeID
