@@ -62,13 +62,9 @@ class ExpaApi(object):
             'user[password]': base64.b64decode(password).decode('utf-8'),
             'commit': 'Sign in'
             }
-        print(base64.b64decode(password).decode('utf-8'))
         s = requests.Session()
         token_response = s.get(self.AUTH_URL).text
-        print(token_response)
         soup = BeautifulSoup(token_response, 'html.parser')
-        test = soup.find("form") #, name="authenticity_token").value
-        print(test)
         token = soup.find("form").find(attrs={'name':'authenticity_token'}).attrs['value'] #, name="authenticity_token").value
         params['authenticity_token'] = token
         print(token)
