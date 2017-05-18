@@ -29,6 +29,13 @@ class APIUnavailableException(Exception):
         self.response = response
         self.error_message = error_message
 
+class DjangoEXPAException(Exception):
+    """
+        This error is raised whenever the EXPA API is not working as expected.
+    """
+    def __init__(self, error_message):
+        self.error_message = error_message
+
 class ExpaApi(object):
     """
     This class is meant to encapsulate and facilitate the development of methods that extract information from the GIS API. Whenever a new object of this class is created, it generates a new access token which will be used for all method calls.
@@ -74,8 +81,7 @@ class ExpaApi(object):
             self.token = response.history[-1].cookies["expa_token"]
             print(self.token)
         except KeyError:
-            print("Cuenta inválida, o ha cambiado el modo de autenticación")
-            self.cookies = response.history[-1].cookies
+            raise DjangoEXPAException("Error obteniendo el token: Cuenta inválida, o ha cambiado el modo de autenticación")
         self.fail_attempts = fail_attempts
         self.fail_interval = fail_interval
         #self.token = requests.post("http://apps.aiesecandes.org/api/token").text
@@ -140,7 +146,7 @@ class ExpaApi(object):
 
     def getCountryEBs(self, mcID):
         """
-        Este método busca dentro de todas las oficinas locales del MC Colombia a los VPs de cada una de ellas para el término 2016
+        Este método busca dentro de todas las oficinas locales de un MC a los VPs de cada una de ellas para el término 2016
         """
         response = requests.get(self._buildQuery(['committees', '%s.json' % mcID])).text
         lcs = json.loads(response)['suboffices']
@@ -160,7 +166,7 @@ class ExpaApi(object):
         data = self.make_query(['committees', str(lcID), 'terms.json'])
         #recorre todos los periodos hasta encontrar el del 2016
         for term in data['data']:
-            if term['short_name'] == '2016':
+            if term['short_name'] == '2017':
                 info = requests.get(self._buildQuery(['committees', str(lcID), 'terms', str(term['id']) + '.json'])).text
                 info = json.loads(info)
                 #recorre todos los equipos del periodo hasta encontrar el de la EB
@@ -364,7 +370,10 @@ class ExpaApi(object):
         """
         now = datetime.now()
         current_year = int(now.strftime('%Y'))
-        start_date = "%d-01-01" % current_year
+        if int(now.strftime('%m')) < 2:
+            current_year -= 1
+        start_date = "%d-02-01" % current_year
+
         end_date = now.strftime('%Y-%m-%d')
         return self.getCountryStats(program, lc, start_date, end_date)
 
