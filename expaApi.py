@@ -11,15 +11,15 @@ import base64
 import calendar
 from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
+from . import tools, settings, models
+
 from future.standard_library import install_aliases
 install_aliases()
 
-from urllib.parse import urlparse, urlencode
-
-#from django_podio.api import PodioApi
-from . import tools, settings, models
+from urllib.parse import urlparse, urlencode, unquote
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
 requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
+
 
 class APIUnavailableException(Exception):
     """
@@ -29,6 +29,7 @@ class APIUnavailableException(Exception):
         self.response = response
         self.error_message = error_message
 
+
 class DjangoEXPAException(Exception):
     """
         This error is raised whenever the EXPA API is not working as expected.
@@ -36,29 +37,41 @@ class DjangoEXPAException(Exception):
     def __init__(self, error_message):
         self.error_message = error_message
 
+
 class ExpaApi(object):
     """
-    This class is meant to encapsulate and facilitate the development of methods that extract information from the GIS API. Whenever a new object of this class is created, it generates a new access token which will be used for all method calls.
-    As such tokens expire two hours after being obtained, it is recommended to genetare a new ExpaApi object if your scripts take too long to complete.
+    This class is meant to encapsulate and facilitate the development of
+    methods that extract information from the GIS API. Whenever a new object of
+    this class is created, it generates a new access token which will be used
+    for all method calls.
+    As such tokens expire two hours after being obtained, it is recommended to
+    generate a new ExpaApi object if your scripts take too long to complete.
     """
 
-    _apiUrl = "https://gis-api.aiesec.org/v1/{palabra1}/{palabra2}?access_token={token}"
-    AUTH_URL  = "https://auth.aiesec.org/users/sign_in"
-    #This dict takes the first letter of a pgogram to decide whether this API's methods should look for information about opportunities or about people
+    AUTH_URL = "https://auth.aiesec.org/users/sign_in"
+    # AUTH_URL = "https://experience.aiesec.org"
+    # This dict takes the first letter of a program to decide whether this
+    # API's methods should look for information about opportunities or about
+    # people
     ioDict = {'i': 'opportunity', 'o': 'person'}
-    #This dict takes the other letters to know whether it is a global volunteer or a global internship program
-    programDict = {'gv':1, 'gt':2, 'get':[2,5], 'gx':[1,2,5], 'cx':[1,2,5], 'ge':5,}
+    # This dict takes the other letters to know whether it is a global
+    # volunteer or a global internship program
+    programDict = {
+        'gv': 1, 'gt': 2, 'get': [2, 5],
+        'gx': [1, 2, 5], 'cx': [1, 2, 5], 'ge': 5}
 
-    def __init__(self, account=None, fail_attempts=1, fail_interval=10, user=None, pwd=None):
+    def __init__(self, account=None, fail_attempts=1, fail_interval=10, pwd=None):
         """
         Default method initialization.
         params?
-        account: If this argument is provided, and the account is present in the database, the expa API will try to use this account to authenticate and obtain the auth token. Otherwise it will use the default account in the settings file
+        account: If this argument is provided, and the account is present in
+        the database, the expa API will try to use this account to authenticate
+        and obtain the auth token. Otherwise it will use the default account in
+        the settings file
         fail_attempts: Defines how many times will this instance try to redo a failed request before failing and throwing an EXPA error.
         fail_interval: Defines the time this instance will wait before trying to redo a failed request.
         """
-        if user and pwd:
-            account = user
+        if account and pwd:
             password = base64.b64encode(pwd.encode())
         else:
             if account is None:
@@ -67,24 +80,21 @@ class ExpaApi(object):
         params = {
             'user[email]': account,
             'user[password]': base64.b64decode(password).decode('utf-8'),
-            'commit': 'Sign in'
             }
         s = requests.Session()
         token_response = s.get(self.AUTH_URL).text
         soup = BeautifulSoup(token_response, 'html.parser')
-        token = soup.find("form").find(attrs={'name':'authenticity_token'}).attrs['value'] #, name="authenticity_token").value
+        token = soup.find("form").find(attrs={'name': 'authenticity_token'}).attrs['value']  # name="authenticity_token").value
         params['authenticity_token'] = token
-        print(token)
-        response = s.post( self.AUTH_URL, data=params)
-        print(response.history[-1].text)
+        response = s.post(self.AUTH_URL, data=params)
         try:
-            self.token = response.history[-1].cookies["expa_token"]
+
+            self.token = json.loads(unquote(response.history[-1].cookies['aiesec_token']))['token']['access_token']
             print(self.token)
         except KeyError:
-            raise DjangoEXPAException("Error obteniendo el token: Cuenta inválida, o ha cambiado el modo de autenticación")
+            raise DjangoEXPAException("Error obtaining the authentication token")
         self.fail_attempts = fail_attempts
         self.fail_interval = fail_interval
-        #self.token = requests.post("http://apps.aiesecandes.org/api/token").text
 
     def _buildQuery(self, routes, queryParams=None, version='v2'):
         """
@@ -107,21 +117,21 @@ class ExpaApi(object):
         query = self._buildQuery(routes, query_params, version)
         print(query)
         fail_attempts = self.fail_attempts
-        #Tries the request until it works
+        # Tries the request until it works
         while fail_attempts > 0:
             response = requests.get(query)
-            if response.status_code == 200: #TODO: Check if the answer is a 200
+            if response.status_code == 200:  # TODO: Check if the answer is a 200
                 data = response.json()
-                return data #This returns the method and avoids it reaching the end stage and continuing.
-            else: #TODO: Check if the answer is a service unavailable, back end server at capacity
+                return data  # This returns the method and avoids it reaching the end stage and raising an APIUnavailableException.
+            else:  # TODO: Check if the answer is a service unavailable, back end server at capacity
                 fail_attempts = fail_attempts - 1
                 error_message = "The request has failed with error code %s and error message %s. Remaining attempts: %s" % (response.status_code, response.text, fail_attempts)
                 print(error_message)
                 if fail_attempts > 0:
                     time.sleep(self.fail_interval)
-        
+
         raise APIUnavailableException(response, error_message)
-        
+
 
     def getOpportunity(self, opID):
         """
@@ -132,7 +142,7 @@ class ExpaApi(object):
 
     def test(self, **kwargs):
         """
-        Test method. Has one kayword argument, 'testArg', to be used when necessary
+        Test method. Has one keyword argument, 'testArg', to be used when necessary
         """
         print(self)
         return kwargs['testArg']
@@ -141,7 +151,7 @@ class ExpaApi(object):
         """
         Devuelve a todos los EPs que son administrados por el EP manager cuya EXPA ID entra como parámetro
        """
-        response = self.make_query(['people.json'], {'filters[managers][]':[expaID]})
+        response = self.make_query(['people.json'], {'filters[managers][]': [expaID]})
         return response
 
     def getCountryEBs(self, mcID):
@@ -199,11 +209,11 @@ class ExpaApi(object):
         Este método extrae las estadísticas, para una oficina dada y un periodo de tiempo dado. Es un método maestro, y todos los otros métodos que obtengan dichas estadísticas deberían llamar a este.
         """
         queryArgs = {
-            'basic[home_office_id]':officeID,
-            'basic[type]':self.ioDict[program[0].lower()],
-            'end_date':end_date,
-            'programmes[]':self.programDict[program[1:].lower()],
-            'start_date':start_date,
+            'basic[home_office_id]': officeID,
+            'basic[type]': self.ioDict[program[0].lower()],
+            'end_date': end_date,
+            'programmes[]': self.programDict[program[1:].lower()],
+            'start_date': start_date,
         }
         try:
             response = self.make_query(['applications', 'analyze.json'], queryArgs)['analytics']
@@ -216,13 +226,13 @@ class ExpaApi(object):
             }
         except APIUnavailableException:
             return {
-                'applications':"EXPA ERROR",
-                'accepted':"EXPA ERROR",
-                'approved':"EXPA ERROR",
-                'realized':"EXPA ERROR",
-                'completed':"EXPA ERROR",
+                'applications': "EXPA ERROR",
+                'accepted': "EXPA ERROR",
+                'approved':" EXPA ERROR",
+                'realized': "EXPA ERROR",
+                'completed': "EXPA ERROR",
             }
-            
+
 
     def get_past_stats(self, days, program, officeID):
         """
@@ -231,7 +241,6 @@ class ExpaApi(object):
         now = datetime.now()
         start_date = (now - timedelta(days=days)).strftime('%Y-%m-%d')
         end_date = now.strftime('%Y-%m-%d')
-        
         return self.get_stats(officeID, program, start_date, end_date)
 
     def getMonthStats(self, month, year, program, officeID):
@@ -240,7 +249,7 @@ class ExpaApi(object):
         """
         start_date = '%d-%02d-01' % (year, month)
         end_date = '%d-%02d-%02d' % (year, month, calendar.monthrange(year, month)[1])
-        
+
         return self.get_stats(officeID, program, start_date, end_date)
 
     def getWeekStats(self, week, year, program, lc=1395):
@@ -333,7 +342,7 @@ class ExpaApi(object):
             maTotal += monthData['MA']
             re.append(monthData['RE'])
             reTotal += monthData['RE']
-        totals = {'MATOTAL':maTotal, 'RETOTAL':reTotal}
+        totals = {'MATOTAL': maTotal, 'RETOTAL': reTotal}
         monthly = {'MA': ma, 'RE': re}
         return {'totals': totals, 'monthly': monthly}
 
@@ -401,7 +410,7 @@ class ExpaApi(object):
         for lc in lcData:
             #Guarda la respuesta en un diccionario cuya llave es el office_id del LC, y cuyo valor son los approved y las realizaciones
             response[lc['key']] = {
-                'approved': lc['total_approvals']['doc_count'], 
+                'approved': lc['total_approvals']['doc_count'],
                 'realized': lc['total_realized']['doc_count'],
             }
         return response
@@ -549,13 +558,13 @@ class ExpaApi(object):
         if not filters:
             filters = {}
         inter_dict = {
-            'registered':'person',
-            'contacted':'person',
-            'applied':'application',
-            'accepted':'application',
-            'an_signed':'application',
-            'approved':'application',
-            'realized':'application',
+            'registered': 'person',
+            'contacted': 'person',
+            'applied': 'application',
+            'accepted': 'application',
+            'an_signed': 'application',
+            'approved': 'application',
+            'realized': 'application',
             }
 
         interaction_type = inter_dict[interaction]
@@ -576,8 +585,8 @@ class ExpaApi(object):
         if not filters:
             filters = {}
         inter_dict = {
-            'registered':'registered',
-            'contacted':'contacted_at',
+            'registered': 'registered',
+            'contacted': 'contacted_at',
             }
         query_args = {
             'filters[%s[from]]' % inter_dict[interaction]:start_date,
@@ -609,18 +618,18 @@ class ExpaApi(object):
         if not filters:
             filters = {}
         inter_dict = {
-            'applied':'created_at',
-            'accepted':'date_matched',
-            'an_signed':'date_an_signed',
-            'approved':'date_approved',
-            'realized':'date_realized',
+            'applied': 'created_at',
+            'accepted': 'date_matched',
+            'an_signed': 'date_an_signed',
+            'approved': 'date_approved',
+            'realized': 'date_realized',
             }
         query_args = {
-            'filters[%s[from]]' % inter_dict[interaction]:start_date,
-            'filters[%s[to]]' % inter_dict[interaction]:end_date,
-            'filters[programmes][]':self.programDict[program[1:]],
-            'page':1,
-            'per_page':500,
+            'filters[%s[from]]' % inter_dict[interaction]: start_date,
+            'filters[%s[to]]' % inter_dict[interaction]: end_date,
+            'filters[programmes][]': self.programDict[program[1:]],
+            'page': 1,
+            'per_page': 500,
         }
         query_args.update(filters)
         if program[0] == 'o':
@@ -702,7 +711,7 @@ class ExpaApi(object):
                     'approved': mcData['total_approvals']['doc_count'],
                     'realized': mcData['total_realized']['doc_count'],
                     'completed': mcData['total_completed']['doc_count'],
-                }    
+                }
 
         except KeyError as e:
             print("Error de llave:")
@@ -711,6 +720,12 @@ class ExpaApi(object):
             raise e
         return response
 
+    def create_EP():
+        """
+        This method creates a new EP on the opportunities portal.
+        Returns the EXPA ID of the created EP.
+        Throws an exception if there was a problem creating the EP
+        """
 
     def get_companies(self, officeID, program, start_date, end_date):
         """
