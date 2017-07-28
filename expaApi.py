@@ -82,16 +82,28 @@ class ExpaApi(object):
             'user[password]': base64.b64decode(password).decode('utf-8'),
             }
         s = requests.Session()
-        token_response = s.get(self.AUTH_URL).text
+        # s.headers.update({
+        #     'Origin': 'https://auth.aiesec.org',
+        #     'Upgrade-Insecure-Requests': '1',
+        #     'DNT': '1',
+        #     'Referrer': 'https://auth.aiesec.org/users/sign_in',
+        #     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
+        #     'Content-Type': 'application/x-www-form-urlencoded',
+        #     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/59.0.3071.115 Safari/537.36'
+        #     })
+        import pdb; pdb.set_trace()
+        # token_response = s.get(self.AUTH_URL).text
+        token_response = s.get("https://experience.aiesec.org").text
         soup = BeautifulSoup(token_response, 'html.parser')
         token = soup.find("form").find(attrs={'name': 'authenticity_token'}).attrs['value']  # name="authenticity_token").value
         params['authenticity_token'] = token
         response = s.post(self.AUTH_URL, data=params)
         try:
 
-            self.token = json.loads(unquote(response.history[-1].cookies['aiesec_token']))['token']['access_token']
+            self.token = response.history[-1].cookies['expa_token']
             print(self.token)
         except KeyError:
+            pdb.set_trace()
             raise DjangoEXPAException("Error obtaining the authentication token")
         self.fail_attempts = fail_attempts
         self.fail_interval = fail_interval
