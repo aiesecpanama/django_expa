@@ -110,16 +110,23 @@ class ExpaApi(object):
         queryParams['access_token'] = self.token
         return baseUrl.format(version=version, routes="/".join(routes), params=urlencode(queryParams, True))
 
-    def make_query(self, routes, query_params=None, version='v2'):
+    def make_query(self, routes, query_params=None, version='v2', method='get'):
         """
         This method both builds a query and executes it using the requests module. If it doesn't work because of EXPA issues, it will retry an amount of times equal to the 'fail_attempts' attribute before raising an APIUnavailableException
         """
-        query = self._buildQuery(routes, query_params, version)
+        if method == "get":
+            query = self._buildQuery(routes, query_params, version)
+        else:
+            query = self._buildQuery(routes, None, version)
         print(query)
         fail_attempts = self.fail_attempts
         # Tries the request until it works
         while fail_attempts > 0:
-            response = requests.get(query)
+            if method == "get":
+                response = requests.get(query)
+            elif method == "patch":
+                print(query_params)
+                response = requests.patch(query, json=query_params)
             if response.status_code == 200:  # TODO: Check if the answer is a 200
                 data = response.json()
                 return data  # This returns the method and avoids it reaching the end stage and raising an APIUnavailableException.
@@ -132,6 +139,20 @@ class ExpaApi(object):
 
         raise APIUnavailableException(response, error_message)
 
+    def getPerson(self, person_id):
+        """
+        Returns the bare JSON data of a person, as obtained from the API
+        """
+        return self.make_query(['people', person_id])
+
+    def update_person(self, person_id, new_data):
+        """
+        Returns the bare JSON data of a person, as obtained from the API
+        params
+        person_id: the id of the person to be updated
+        new_data: a dictionary consisting of the fields and values that will be updated in that person
+        """
+        return self.make_query(['people', person_id], {"person": new_data}, method="patch")
 
     def getOpportunity(self, opID):
         """
@@ -719,13 +740,6 @@ class ExpaApi(object):
             print(json.loads(requests.get(query).text))
             raise e
         return response
-
-    def create_EP():
-        """
-        This method creates a new EP on the opportunities portal.
-        Returns the EXPA ID of the created EP.
-        Throws an exception if there was a problem creating the EP
-        """
 
     def get_companies(self, officeID, program, start_date, end_date):
         """
