@@ -122,17 +122,28 @@ class ExpaApi(object):
         fail_attempts = self.fail_attempts
         # Tries the request until it works
         while fail_attempts > 0:
-            if method == "get":
-                response = requests.get(query)
-            elif method == "patch":
-                print(query_params)
-                response = requests.patch(query, json=query_params)
-            if response.status_code == 200:  # TODO: Check if the answer is a 200
-                data = response.json()
-                return data  # This returns the method and avoids it reaching the end stage and raising an APIUnavailableException.
-            else:  # TODO: Check if the answer is a service unavailable, back end server at capacity
+            try:
+                if method == "get":
+                    response = requests.get(query, timeout=80)
+                elif method == "patch":
+                    print(query_params)
+                    response = requests.patch(query, json=query_params, timeout=20)
+                if response.status_code == 200:  # TODO: Check if the answer is a 200
+                    data = response.json()
+                    return data  # This returns the method and avoids it reaching the end stage and raising an APIUnavailableException.
+                else:  # TODO: Check if the answer is a service unavailable, back end server at capacity
+                    fail_attempts = fail_attempts - 1
+                    error_message = "The request has failed with error code %s and error message %s. Remaining attempts: %s" % (response.status_code, response.text, fail_attempts)
+                    print(error_message)
+                    if fail_attempts > 0:
+                        time.sleep(self.fail_interval)
+            except Exception as e:
                 fail_attempts = fail_attempts - 1
-                error_message = "The request has failed with error code %s and error message %s. Remaining attempts: %s" % (response.status_code, response.text, fail_attempts)
+                error_message = "The request has failed because of an exception"
+                print(error_message)
+                print(e)
+                if fail_attempts > 0:
+                    time.sleep(self.fail_interval)
                 print(error_message)
                 if fail_attempts > 0:
                     time.sleep(self.fail_interval)
@@ -159,6 +170,13 @@ class ExpaApi(object):
         Returns the bare JSON data of an opportunity, as obtained from the GIS API.
         """
         response = requests.get(self._buildQuery(['opportunities', opID]))
+        return response
+
+    def get_application(self, app_ID):
+        """
+        Returns the bare JSON data of an opportunity, as obtained from the GIS API.
+        """
+        response = self.make_query(['applications', app_ID])
         return response
 
     def test(self, **kwargs):
@@ -426,6 +444,7 @@ class ExpaApi(object):
             officeID:{
                 'approved': mcData['total_approvals']['doc_count'],
                 'realized': mcData['total_realized']['doc_count'],
+                'completed': mcData['total_completed']['doc_count'],
             }
         }
         for lc in lcData:
@@ -433,6 +452,7 @@ class ExpaApi(object):
             response[lc['key']] = {
                 'approved': lc['total_approvals']['doc_count'],
                 'realized': lc['total_realized']['doc_count'],
+                'completed': mcData['total_completed']['doc_count'],
             }
         return response
 
@@ -759,3 +779,8 @@ class ExpaApi(object):
         totals['total'] = data['paging']['total_items']
         totals['items'] = data['data']
         return totals
+
+    def lda_report(self, id, id_type, *args, **kwargs):
+        data = self.make_query(['ldm', 'report'], {id_type: id})
+        return data
+        
