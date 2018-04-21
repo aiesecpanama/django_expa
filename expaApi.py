@@ -243,22 +243,25 @@ class ExpaApi(object):
             managers.append(tools.getContactData(manager))
         return managers
 
-    def get_stats(self, officeID, program, start_date, end_date):
+    def get_stats(self, officeID, program, start_date, end_date=None):
         """
         Este método extrae las estadísticas, para una oficina dada y un periodo de tiempo dado. Es un método maestro, y todos los otros métodos que obtengan dichas estadísticas deberían llamar a este.
         """
-        queryArgs = {
+        query_args = {
             'basic[home_office_id]': officeID,
             'basic[type]': self.ioDict[program[0].lower()],
-            'end_date': end_date,
             'programmes[]': self.programDict[program[1:].lower()],
             'start_date': start_date,
         }
+        if end_date is None:
+            end_date = datetime.now().strftime('%Y-%m-%d')
+        query_args['end_date'] = end_date
         try:
-            response = self.make_query(['applications', 'analyze.json'], queryArgs)['analytics']
+            response = self.make_query(['applications', 'analyze.json'], query_args)['analytics']
             return {
                 'applications': response['total_applications']['doc_count'],
-                'accepted': response['total_matched']['doc_count'],
+                'applicants': response['total_applications']['applicants']['value'],
+                'accepted': response['total_matched']['unique_profiles']['value'],
                 'approved': response['total_approvals']['doc_count'],
                 'realized': response['total_realized']['doc_count'],
                 'completed': response['total_completed']['doc_count'],
@@ -266,6 +269,7 @@ class ExpaApi(object):
         except APIUnavailableException:
             return {
                 'applications': "EXPA ERROR",
+                'applicants': "EXPA ERROR",
                 'accepted': "EXPA ERROR",
                 'approved':" EXPA ERROR",
                 'realized': "EXPA ERROR",
@@ -535,14 +539,13 @@ class ExpaApi(object):
 
         weekEnd = datetime.strptime('%d %d 0' % (year, week), '%Y %W %w').strftime('%Y-%m-%d')
 
-        query = self._buildQuery(['people.json',], {
+        data = self.make_query(['people.json',], {
             'filters[registered[from]]':weekStart,
             'filters[registered[to]]':weekEnd,
             'page':1,
             'per_page':150,
             'filters[home_committee]':officeID,
         })
-        data = json.loads(requests.get(query).text)
         totals = {}
         totals['total'] = data['paging']['total_items']
         totals['eps'] = data['data']
@@ -568,14 +571,13 @@ class ExpaApi(object):
 
         weekEnd = datetime.strptime('%d %d 0' % (year, week), '%Y %W %w').strftime('%Y-%m-%d')
 
-        query = self._buildQuery(['people.json',], {
+        data = self.make_query(['people.json',], {
             'filters[contacted_at[from]]':weekStart,
             'filters[contacted_at[to]]':weekEnd,
             'filters[home_committee]':officeID,
             'page':1,
             'per_page':150
         })
-        data = json.loads(requests.get(query).text)
         totals = {}
         totals['total'] = data['paging']['total_items']
         totals['eps'] = data['data']
@@ -595,7 +597,7 @@ class ExpaApi(object):
         end_date = now.strftime('%Y-%m-%d')
         return self.get_interactions(interaction, officeID, program, start_date, end_date, filters)
 
-    def get_interactions(self, interaction, officeID, program, start_date, end_date, filters=None):
+    def get_interactions(self, interaction, officeID, program, start_date, end_date=None, filters=None):
         if not filters:
             filters = {}
         inter_dict = {
@@ -606,9 +608,13 @@ class ExpaApi(object):
             'an_signed': 'application',
             'approved': 'application',
             'realized': 'application',
+            'finished': 'application',
             }
 
         interaction_type = inter_dict[interaction]
+        if end_date is None:
+            end_date = datetime.now().strftime('%Y-%m-%d')
+            
         if interaction_type == 'person':
             return self.get_person_interactions(interaction, officeID, program, start_date, end_date, filters)
         elif interaction_type == 'application':
@@ -664,6 +670,7 @@ class ExpaApi(object):
             'an_signed': 'date_an_signed',
             'approved': 'date_approved',
             'realized': 'date_realized',
+            'finished': 'experience_end_date',
             }
         query_args = {
             'filters[%s[from]]' % inter_dict[interaction]: start_date,
@@ -691,28 +698,12 @@ class ExpaApi(object):
         """
         now = datetime.now()
         currentYear = int(now.strftime('%Y'))
-        if int(now.strftime('%m')) < 6:
+        if int(now.strftime('%m')) < 8:
             currentYear -= 1
-        startDate = "%d-07-01" % currentYear
-        endDate = now.strftime('%Y-%m-%d')
+        start_date = "%d-08-01" % currentYear
+        end_date = now.strftime('%Y-%m-%d')
 
-        queryArgs = {
-            'basic[home_office_id]':office_id,
-            'basic[type]':self.ioDict[program[0]],
-            'end_date':endDate,
-            'programmes[]':self.programDict[program[1:]],
-            'start_date':startDate
-        }
-        query = self._buildQuery(['applications', 'analyze.json'], queryArgs)
-        raw_response = requests.get(query).text
-        response = json.loads(raw_response)['analytics']
-        return {
-            'applications': response['total_applications']['doc_count'],
-            'accepted': response['total_matched']['doc_count'],
-            'approved': response['total_approvals']['doc_count'],
-            'realized': response['total_realized']['doc_count'],
-            'completed': response['total_completed']['doc_count'],
-            }
+        return self.get_stats(office_id, program, start_date, end_date)
 
     def getCountryCurrentMCYearStats(self, program, mc=1551):
         """
