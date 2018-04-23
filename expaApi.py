@@ -775,3 +775,40 @@ class ExpaApi(object):
         data = self.make_query(['ldm', 'report'], {id_type: id})
         return data
         
+
+    def e2e_analytics(self, home_office_id, host_office_id, program, start_date, end_date=None):
+        """
+        Este método extrae las estadísticas, para una oficina dada y un periodo de tiempo dado. Es un método maestro, y todos los otros métodos que obtengan dichas estadísticas deberían llamar a este.
+        """
+        query_args = {
+            'entity_to_entity[person_committee]': home_office_id,
+            'entity_to_entity[opportunity_committee]': host_office_id,
+            'programmes[]': self.programDict[program[1:].lower()],
+            'start_date': start_date,
+        }
+        if end_date is None:
+            end_date = datetime.now().strftime('%Y-%m-%d')
+        query_args['end_date'] = end_date
+        try:
+            response = self.make_query(['applications', 'analyze.json'], query_args)['analytics']
+            return {
+                'applications': response['total_applications']['doc_count'],
+                'applied': response['total_applications']['applicants']['value'],
+                'acceptances': response['total_matched']['doc_count'],
+                'accepted': response['total_matched']['unique_profiles']['value'],
+                'approved': response['total_approvals']['doc_count'],
+                'realized': response['total_realized']['doc_count'],
+                'finished': response['total_finished']['doc_count'],
+                'completed': response['total_completed']['doc_count'],
+            }
+        except APIUnavailableException:
+            return {
+                'applications': "EXPA ERROR",
+                'applied': "EXPA ERROR",
+                'acceptances': "EXPA ERROR",
+                'accepted': "EXPA ERROR",
+                'approved':" EXPA ERROR",
+                'realized': "EXPA ERROR",
+                'finished': "EXPA ERROR",
+                'completed': "EXPA ERROR",
+            }
