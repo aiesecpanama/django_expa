@@ -82,7 +82,7 @@ class ExpaApi(object):
             'user[password]': base64.b64decode(password).decode('utf-8'),
             }
         s = requests.Session()
-        token_response = s.get("https://experience.aiesec.org").text
+        token_response = s.get("https://experience-v2.aiesec.org").text
         soup = BeautifulSoup(token_response, 'html.parser')
         token = soup.find("form").find(attrs={'name': 'authenticity_token'}).attrs['value']  # name="authenticity_token").value
         params['authenticity_token'] = token
@@ -92,9 +92,31 @@ class ExpaApi(object):
             self.token = response.history[-1].cookies['expa_token']
             print(self.token)
         except KeyError:
+            print(response.history[-1].cookies)
             raise DjangoEXPAException("Error obtaining the authentication token")
         self.fail_attempts = fail_attempts
         self.fail_interval = fail_interval
+
+    def graphql_query(self, data):
+        baseUrl = "https://gis-api.aiesec.org/graphql?access_token=" + self.token
+        return requests.post(baseUrl, json=data)
+
+    def get_recent_registered_with_alignment(self, page=1, perPage=100):
+        data = {
+            "query":"query PeopleIndexQuery($id: Boolean! $lc_alignment: Boolean! $page: Int $perPage: Int $filters: PeopleFilter $q: String $sort: String) { allPeople(page: $page, per_page: $perPage, q: $q, filters: $filters, sort: $sort) {   ...PeopleList_list }} fragment PeopleList_list on PersonList { data {id @include(if: $id) lc_alignment @include(if: $lc_alignment) { keywords }  } paging { total_pages current_page total_items}}",
+            "variables":{"id":True,"lc_alignment":True,"page":page,"perPage":perPage,"filters":{"is_pop_user":False},"q":None,"sort":"-created_at"}
+        }
+        response = self.graphql_query(data).json()['data']['allPeople']['data']
+        return response
+
+    def get_lc_alignment(self, person_id):
+        data = {"query":"query DetailsQuery($id: ID) {getPerson(id: $id) {...PersonalDetails_personalDetails}}fragment PersonalDetails_personalDetails on Person {id first_name last_name middle_names full_name lc_alignment {keywords id}}","variables":{"id":str(person_id)}}
+        response = self.graphql_query(data).json()['data']['getPerson']['lc_alignment']
+        if response is None:
+            return 'Unknown'
+        else:
+            return response['keywords']
+        
 
     def _buildQuery(self, routes, queryParams=None, version='v2'):
         """
