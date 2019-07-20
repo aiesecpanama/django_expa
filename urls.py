@@ -5,6 +5,7 @@ from django.conf.urls.static import static
 
 from . import views
 
+app_name = "django_expa"
 urlpatterns = [
     #url(r'^personas/(?P<pk>\d+)/registrar$', views.registrar, name='registrar'),
     #url(r'^feedback/$', views.feedback, name='feedback'),
